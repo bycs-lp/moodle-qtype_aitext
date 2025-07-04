@@ -47,6 +47,7 @@ class qtype_aitext_external extends external_api {
                 'defaultmark' => new external_value(PARAM_INT, 'The total possible score'),
                 'prompt' => new external_value(PARAM_TEXT, 'The AI Prompt'),
                 'marksscheme' => new external_value(PARAM_TEXT, 'The marks scheme'),
+                'contextid' => new external_value(PARAM_INT, 'The context id'),
             ]
         );
 
@@ -55,38 +56,52 @@ class qtype_aitext_external extends external_api {
     /**
      * Similar to clicking the submit button.
      *
-     * @param array $response
-     * @param integer $defaultmark
+     * @param string $response
+     * @param int $defaultmark
      * @param string $prompt
      * @param string $marksscheme
-     * @return array the response array
+     * @param int $contextid the context id
+     * @return stdClass the response
      */
-    public static function fetch_ai_grade($response, $defaultmark, $prompt, $marksscheme): stdClass {
-        // Get our AI helper.
-        $ai = new local_ai_manager\manager('feedback');
+    public static function fetch_ai_grade(string $response, int $defaultmark,
+            string $prompt, string $marksscheme, int $contextid): stdClass {
+        [
+                'response' => $response,
+                'defaultmark' => $defaultmark,
+                'prompt' => $prompt,
+                'marksscheme' => $marksscheme,
+                'contextid' => $contextid,
+        ] = self::validate_parameters(self::fetch_ai_grade_parameters(),
+                [
+                        'response' => $response,
+                        'defaultmark' => $defaultmark,
+                        'prompt' => $prompt,
+                        'marksscheme' => $marksscheme,
+                        'contextid' => $contextid,
+                ]
+        );
+        $context = $contextid === 0 ? context_system::instance() : context::instance_by_id($contextid);
+        self::validate_context($context);
+
+        // TODO Eventually move this to a own capability which by default is assigned to a teacher in a course.
+        require_capability('mod/quiz:grade', $context);
 
         // Build an aitext question instance so we can call the same code that the question type uses when it grades.
         $type = 'aitext';
         \question_bank::load_question_definition_classes($type);
         $aiquestion = new qtype_aitext_question();
+        $aiquestion->contextid = $contextid;
         $aiquestion->qtype = \question_bank::get_qtype('aitext');
         // Make sure we have the right data for AI to work with.
         if (!empty($response) && !empty($prompt) && $defaultmark > 0) {
             $fullaiprompt = $aiquestion->build_full_ai_prompt($response, $prompt, $defaultmark, $marksscheme);
-            $llmresponse = $ai->perform_request($fullaiprompt);
-            if ($llmresponse->get_code() !== 200) {
-                throw new moodle_exception('err_retrievingtranslation', 'qtype_aitext', '',
-                        $llmresponse->get_errormessage());
-            }
-            $feedback = format_text($llmresponse->get_content(), FORMAT_HTML);
+            $feedback = $aiquestion->perform_request($fullaiprompt);
             $contentobject = $aiquestion->process_feedback($feedback);
         } else {
-            $contentobject = (object)["feedback" => get_string('error_parammissing', 'qtype_aitext'), "marks" => 0];
+            $contentobject = (object)["feedback" => get_string('err_parammissing', 'qtype_aitext'), "marks" => 0];
         }
-
         // Return whatever we have got.
         return $contentobject;
-
     }
 
     /**

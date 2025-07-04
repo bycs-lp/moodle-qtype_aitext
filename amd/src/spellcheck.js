@@ -24,16 +24,15 @@
 
 import * as Diff from 'qtype_aitext/diff';
 import ModalForm from 'core_form/modalform';
-import {get_string as getString} from 'core/str';
+import {getString as getString} from 'core/str';
 
 /**
  * Init the module.
  *
- * @param {int} cmid the course module id of the quiz.
  * @param {string} readonlyareaselector the selector for the readonly area to apply the spellchecking
  * @param {string} spellcheckeditbuttonselector the selector for the spell check edit button
  */
-export const init = (cmid, readonlyareaselector, spellcheckeditbuttonselector) => {
+export const init = (readonlyareaselector, spellcheckeditbuttonselector) => {
     renderDiff(readonlyareaselector);
 
     if (!document.querySelector(spellcheckeditbuttonselector)) {
@@ -42,14 +41,14 @@ export const init = (cmid, readonlyareaselector, spellcheckeditbuttonselector) =
     document.querySelector(spellcheckeditbuttonselector).addEventListener('click',
         async(event) => {
             event.preventDefault();
-            await showModalForm(cmid, readonlyareaselector);
+            await showModalForm(readonlyareaselector);
         });
 };
 
 /**
- * Render the spellcheckdiff.
+ * Render the spell check highlighting.
  *
- * @param {string} readonlyareaselector The selector for the readonly area to apply the spell check diff to
+ * @param {string} readonlyareaselector the selector for the readonly area to apply the spell check diff to
  */
 export const renderDiff = (readonlyareaselector) => {
     const studentanswer = document.querySelector(readonlyareaselector).innerHTML;
@@ -67,7 +66,7 @@ export const renderDiff = (readonlyareaselector) => {
         part.value = part.value.replace(/ /g, '&nbsp;');
         const parser = new DOMParser();
         part.value = parser.parseFromString(part.value, 'text/html');
-        var cls = part.added ? 'qtype_aitext_spellcheck_new' :
+        const cls = part.added ? 'qtype_aitext_spellcheck_new' :
             part.removed ? 'qtype_aitext_spellcheck_wrong' : '';
         if (part.added || part.removed) {
             span = document.createElement('span');
@@ -86,19 +85,17 @@ export const renderDiff = (readonlyareaselector) => {
 /**
  * Show the dynamic spellcheck form.
  *
- * @param {int} cmid the course module id of the quiz
  * @param {string} readonlyareaselector the selector for the readonly area
  */
-export const showModalForm = async(cmid, readonlyareaselector) => {
+export const showModalForm = async(readonlyareaselector) => {
     const attemptstepid = document.querySelector(readonlyareaselector).dataset.spellcheckattemptstepid;
     const answerstepid = document.querySelector(readonlyareaselector).dataset.spellcheckattemptstepanswerid;
     const title = await getString('spellcheckedit', 'qtype_aitext');
     const modalForm = new ModalForm({
-        formClass: "qtype_aitext\\form\\edit_spellchek",
+        formClass: "qtype_aitext\\form\\edit_spellcheck",
         args: {
             attemptstepid,
-            answerstepid,
-            cmid
+            answerstepid
         },
         modalConfig: {title},
     });
@@ -107,7 +104,9 @@ export const showModalForm = async(cmid, readonlyareaselector) => {
 };
 
 /**
- * Reload the page. This is not nice, but easy :-)
+ * Reload the page.
+ *
+ * This is not nice, but easy :-) .
  */
 const reloadpage = () => {
     location.reload();

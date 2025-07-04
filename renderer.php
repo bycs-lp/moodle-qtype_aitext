@@ -23,8 +23,6 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-use qtype_aitext\form\edit_spellchek;
-
 defined('MOODLE_INTERNAL') || die();
 /**
  * Generates the output for aitext questions.
@@ -43,7 +41,7 @@ class qtype_aitext_renderer extends qtype_renderer {
      */
     public function formulation_and_controls(question_attempt $qa,
             question_display_options $options) {
-        global $CFG, $PAGE, $USER;
+        global $CFG, $USER;
 
         /** @var qtype_aitext_question $question */
         $question = $qa->get_question();
@@ -93,11 +91,14 @@ class qtype_aitext_renderer extends qtype_renderer {
         }
 
         $result = '';
-        $uniqid = uniqid();
-        $result .= html_writer::tag('div', '',
-                ['data-content' => 'local_ai_manager_infobox', 'data-boxid' => $uniqid]);
-        $PAGE->requires->js_call_amd('local_ai_manager/infobox', 'renderInfoBox',
-                ['qtype_aitext', $USER->id, '[data-content="local_ai_manager_infobox"][data-boxid="' . $uniqid . '"]', ['feedback']]);
+        if (get_config('qtype_aitext', 'backend') === 'local_ai_manager') {
+            $uniqid = uniqid();
+            $result .= html_writer::tag('div', '',
+                    ['data-content' => 'local_ai_manager_infobox', 'data-boxid' => $uniqid]);
+            $this->page->requires->js_call_amd('local_ai_manager/infobox', 'renderInfoBox',
+                    ['qtype_aitext', $USER->id, '[data-content="local_ai_manager_infobox"][data-boxid="' . $uniqid . '"]',
+                            ['feedback']]);
+        }
         $result .= html_writer::tag('div', $question->format_questiontext($qa),
                 ['class' => 'qtext']);
 
@@ -111,10 +112,12 @@ class qtype_aitext_renderer extends qtype_renderer {
         }
         $result .= html_writer::tag('div', $files, ['class' => 'attachments']);
         $result .= html_writer::end_tag('div');
-        $result .= html_writer::tag('div', '',
-                ['data-content' => 'local_ai_manager_warningbox', 'data-boxid' => $uniqid]);
-        $PAGE->requires->js_call_amd('local_ai_manager/warningbox', 'renderWarningBox',
-                ['[data-content="local_ai_manager_warningbox"][data-boxid="' . $uniqid . '"]']);
+        if (get_config('qtype_aitext', 'backend') === 'local_ai_manager') {
+            $result .= html_writer::tag('div', '',
+                    ['data-content' => 'local_ai_manager_warningbox', 'data-boxid' => $uniqid]);
+            $this->page->requires->js_call_amd('local_ai_manager/warningbox', 'renderWarningBox',
+                    ['[data-content="local_ai_manager_warningbox"][data-boxid="' . $uniqid . '"]']);
+        }
 
         return $result;
     }
@@ -242,7 +245,6 @@ class qtype_aitext_renderer extends qtype_renderer {
 
         return $output;
     }
-
 }
 
 
@@ -268,7 +270,7 @@ abstract class qtype_aitext_format_renderer_base extends plugin_renderer_base {
     }
 
     /**
-     * Render the students respone when the question is in read-only mode.
+     * Render the students response when the question is in read-only mode.
      *
      * @param string $name the variable name this input edits.
      * @param question_attempt $qa the question attempt being display.
@@ -277,8 +279,68 @@ abstract class qtype_aitext_format_renderer_base extends plugin_renderer_base {
      * @param object $context the context teh output belongs to.
      * @return string html to display the response.
      */
-    abstract public function response_area_read_only($name, question_attempt $qa,
-            question_attempt_step $step, $lines, $context);
+    public function response_area_read_only($name, $qa, $step, $lines, $context) {
+        global $USER;
+
+        $question = $qa->get_question();
+        $uniqid = uniqid();
+        $readonlyareaid = 'aitext_readonly_area' . $uniqid;
+        $spellcheckeditbuttonid = 'aitext_spellcheckedit' . $uniqid;
+
+        if ($question->spellcheck) {
+            $this->page->requires->js_call_amd('qtype_aitext/diff');
+            $this->page->requires->js_call_amd('qtype_aitext/spellcheck', 'init',
+                    ['#' . $readonlyareaid, '#' . $spellcheckeditbuttonid]);
+            $stepspellcheck = $qa->get_last_step_with_qt_var('-spellcheckresponse');
+            $stepanswer = $qa->get_last_step_with_qt_var('answer');
+        }
+        // Lib to display the spellcheck diff.
+        $labelbyid = $qa->get_qt_field_name($name) . '_label';
+        $responselabel = $this->displayoptions->add_question_identifier_to_label(get_string('answertext', 'qtype_aitext'));
+        $output = html_writer::tag('h4', $responselabel, ['id' => $labelbyid, 'class' => 'sr-only']);
+
+        $divoptions = [
+                'id' => $readonlyareaid,
+                'role' => 'textbox',
+                'aria-readonly' => 'true',
+                'aria-labelledby' => $labelbyid,
+                'class' => $this->class_name() . ' qtype_aitext_response readonly',
+                'style' => 'min-height: ' . ($lines * 1.25) . 'em;',
+        ];
+
+        if ($qa->get_question()->spellcheck) {
+            $divoptions['data-spellcheck'] = $this->prepare_response('-spellcheckresponse', $qa, $stepspellcheck, $context);
+            $divoptions['data-spellcheckattemptstepid'] = $stepspellcheck->get_id();
+            $divoptions['data-spellcheckattemptstepanswerid'] = $stepanswer->get_id();
+            $divoptions['data-answer'] = $this->prepare_response($name, $qa, $step, $context);
+        }
+
+        $output .= html_writer::tag('div', $this->prepare_response($name, $qa, $step, $context), $divoptions);
+
+        if (
+                $qa->get_question()->spellcheck &&
+                (
+                        has_capability('mod/quiz:grade', $context) ||
+                        has_capability('mod/quiz:regrade', $context) ||
+                        ($context->contextlevel === CONTEXT_USER && intval($USER->id) === intval($context->instanceid))
+                )
+        ) {
+            $btnoptions = ['id' => $spellcheckeditbuttonid, 'class' => 'btn btn-link'];
+            $output .= html_writer::tag(
+                    'button',
+                    $this->output->pix_icon(
+                            'i/edit',
+                            get_string('spellcheckedit', 'qtype_aitext'),
+                            'moodle'
+                    ) . " " . get_string('spellcheckedit', 'qtype_aitext'),
+                    $btnoptions
+            );
+        }
+        // Height $lines * 1.25 because that is a typical line-height on web pages.
+        // That seems to give results that look OK.
+
+        return $output;
+    }
 
     /**
      * Render the students respone when the question is in read-only mode.
@@ -314,75 +376,6 @@ class qtype_aitext_format_editor_renderer extends qtype_aitext_format_renderer_b
      */
     protected function class_name() {
         return 'qtype_aitext_editor';
-    }
-    /**
-     * Return a read only version of the response areay. Typically for after
-     * a quesiton has been answered and the response cannot be modified.
-     * @param string $name
-     * @param question_attempt $qa
-     * @param question_attempt_step $step
-     * @param int $lines number of lines in the editor
-     * @param object $context
-     * @return string
-     * @throws coding_exception
-     */
-    public function response_area_read_only($name, $qa, $step, $lines, $context) {
-        global $OUTPUT;
-        $question = $qa->get_question();
-        $uniqid = uniqid();
-        $readonlyareaid = 'aitext_readonly_area' . $uniqid;
-        $spellcheckeditbuttonid = 'aitext_spellcheckedit' . $uniqid;
-
-        if ($question->spellcheck) {
-            $this->page->requires->js_call_amd('qtype_aitext/diff');
-            $this->page->requires->js_call_amd('qtype_aitext/spellcheck', 'init',
-                    [$this->get_page()->cm->id, '#' . $readonlyareaid, '#' . $spellcheckeditbuttonid]);
-            $stepspellcheck = $qa->get_last_step_with_qt_var('-spellcheckresponse');
-            $stepanswer = $qa->get_last_step_with_qt_var('answer');
-        }
-        // Lib to display the spellcheck diff.
-        $labelbyid = $qa->get_qt_field_name($name) . '_label';
-        $responselabel = $this->displayoptions->add_question_identifier_to_label(get_string('answertext', 'qtype_aitext'));
-        $output = html_writer::tag('h4', $responselabel, ['id' => $labelbyid, 'class' => 'sr-only']);
-
-        $divoptions = [
-            'id' => $readonlyareaid,
-            'role' => 'textbox',
-            'aria-readonly' => 'true',
-            'aria-labelledby' => $labelbyid,
-            'class' => $this->class_name() . ' qtype_aitext_response readonly',
-            'style' => 'min-height: ' . ($lines * 1.25) . 'em;',
-        ];
-
-        if ($qa->get_question()->spellcheck) {
-            $divoptions['data-spellcheck'] = $this->prepare_response('-spellcheckresponse', $qa, $stepspellcheck, $context);
-            $divoptions['data-spellcheckattemptstepid'] = $stepspellcheck->get_id();
-            $divoptions['data-spellcheckattemptstepanswerid'] = $stepanswer->get_id();
-            $divoptions['data-answer'] = $this->prepare_response($name, $qa, $step, $context);
-        }
-
-        $output .= html_writer::tag('div', $this->prepare_response($name, $qa, $step, $context), $divoptions);
-
-        if (
-            $qa->get_question()->spellcheck &&
-            (
-                has_capability('mod/quiz:grade', $context) ||
-                has_capability('mod/quiz:regrade', $context)
-            )
-        ) {
-            $btnoptions = ['id' => $spellcheckeditbuttonid, 'class' => 'btn btn-link'];
-            $output .= html_writer::tag(
-                'button',
-                $OUTPUT->pix_icon(
-                    'i/edit',
-                    get_string('spellcheckedit', 'qtype_aitext'),
-                    'moodle'
-                ) . " " . get_string('spellcheckedit', 'qtype_aitext'),
-                $btnoptions
-            );
-        }
-
-        return $output;
     }
 
     /**
@@ -679,77 +672,6 @@ class qtype_aitext_format_plain_renderer extends qtype_aitext_format_renderer_ba
      */
     protected function class_name() {
         return 'qtype_aitext_plain';
-    }
-    /**
-     * Read only version of response (typically after submission)
-     * @param string $name
-     * @param question_attempt $qa
-     * @param question_attempt_step $step
-     * @param int $lines
-     * @param object $context
-     * @return string
-     * @throws coding_exception
-     */
-    public function response_area_read_only($name, $qa, $step, $lines, $context) {
-        // CARE: This is basically duplicating response_area_read_only from qtype_aitext_format_editor_renderer.
-        global $OUTPUT;
-        $question = $qa->get_question();
-        $uniqid = uniqid();
-        $readonlyareaid = 'aitext_readonly_area' . $uniqid;
-        $spellcheckeditbuttonid = 'aitext_spellcheckedit' . $uniqid;
-
-        if ($question->spellcheck) {
-            $this->page->requires->js_call_amd('qtype_aitext/diff');
-            $this->page->requires->js_call_amd('qtype_aitext/spellcheck', 'init',
-                    [$this->get_page()->cm->id, '#' . $readonlyareaid, '#' . $spellcheckeditbuttonid]);
-            $stepspellcheck = $qa->get_last_step_with_qt_var('-spellcheckresponse');
-            $stepanswer = $qa->get_last_step_with_qt_var('answer');
-        }
-        // Lib to display the spellcheck diff.
-        $labelbyid = $qa->get_qt_field_name($name) . '_label';
-        $responselabel = $this->displayoptions->add_question_identifier_to_label(get_string('answertext', 'qtype_aitext'));
-        $output = html_writer::tag('h4', $responselabel, ['id' => $labelbyid, 'class' => 'sr-only']);
-
-        $divoptions = [
-                'id' => $readonlyareaid,
-                'role' => 'textbox',
-                'aria-readonly' => 'true',
-                'aria-labelledby' => $labelbyid,
-                'class' => $this->class_name() . ' qtype_aitext_response readonly',
-                'style' => 'min-height: ' . ($lines * 1.25) . 'em;',
-        ];
-
-        if ($qa->get_question()->spellcheck) {
-            $divoptions['data-spellcheck'] = $this->prepare_response('-spellcheckresponse', $qa, $stepspellcheck, $context);
-            $divoptions['data-spellcheckattemptstepid'] = $stepspellcheck->get_id();
-            $divoptions['data-spellcheckattemptstepanswerid'] = $stepanswer->get_id();
-            $divoptions['data-answer'] = $this->prepare_response($name, $qa, $step, $context);
-        }
-
-        $output .= html_writer::tag('div', $this->prepare_response($name, $qa, $step, $context), $divoptions);
-
-        if (
-                $qa->get_question()->spellcheck &&
-                (
-                        has_capability('mod/quiz:grade', $context) ||
-                        has_capability('mod/quiz:regrade', $context)
-                )
-        ) {
-            $btnoptions = ['id' => $spellcheckeditbuttonid, 'class' => 'btn btn-link'];
-            $output .= html_writer::tag(
-                    'button',
-                    $OUTPUT->pix_icon(
-                            'i/edit',
-                            get_string('spellcheckedit', 'qtype_aitext'),
-                            'moodle'
-                    ) . " " . get_string('spellcheckedit', 'qtype_aitext'),
-                    $btnoptions
-            );
-        }
-        // Height $lines * 1.25 because that is a typical line-height on web pages.
-        // That seems to give results that look OK.
-
-        return $output;
     }
 
     /**

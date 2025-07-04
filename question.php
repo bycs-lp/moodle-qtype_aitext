@@ -27,7 +27,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 require_once($CFG->dirroot . '/question/type/questionbase.php');
-use local_ai_manager\manager;
+
 /**
  * Represents an aitext question.
  *
@@ -143,6 +143,51 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
     public function apply_attempt_state(question_attempt_step $step) {
         $this->step = $step;
     }
+    /**
+     * Call the llm using either the 4.5 core api or the backend provided by
+     * local_ai_manager (mebis) or tool_aimanager
+     *
+     * @param string $prompt
+     * @param string $purpose
+     */
+    public function perform_request(string $prompt, string $purpose = 'feedback'): string {
+        $backend = get_config('qtype_aitext', 'backend');
+        if ($backend == 'local_ai_manager') {
+            $manager = new local_ai_manager\manager($purpose);
+            $llmresponse = (object) $manager->perform_request($prompt, 'qtype_aitext', $this->contextid);
+            if ($llmresponse->get_code() !== 200) {
+                throw new moodle_exception(
+                'err_retrievingfeedback',
+                'qtype_aitext',
+                '',
+                $llmresponse->get_errormessage(),
+                $llmresponse->get_debuginfo()
+                );
+            }
+            return $llmresponse->get_content();
+        } else if ($backend == 'core_ai_subsystem') {
+            global $USER,$CFG, $DB;
+            if(str_starts_with($CFG->release, '5')) {
+                $manager = new \core_ai\manager($DB);
+            } else {
+                $manager = new \core_ai\manager();
+            }
+            $action = new \core_ai\aiactions\generate_text(
+                contextid: $this->contextid,
+                userid: $USER->id,
+                prompttext: $prompt
+            );
+            $llmresponse = $manager->process_action($action);
+            $responsedata = $llmresponse->get_response_data();
+            return $responsedata['generatedcontent'];
+        } else if ($backend == 'tool_aimanager') {
+            $ai = new tool_aiconnect\ai\ai();
+            $llmresponse = $ai->prompt_completion($prompt);
+            return $llmresponse['response']['choices'][0]['message']['content'];
+        }
+        throw new moodle_exception('err_invalidbackend', 'qtype_aitext');
+
+    }
 
     /**
      * Get the spellchecking response.
@@ -153,20 +198,10 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
      * @throws dml_exception
      * @throws moodle_exception
      */
-    private function get_spellchecking(array $response):string {
+    private function get_spellchecking(array $response): string {
         $fullaiprompt = $this->build_full_ai_spellchecking_prompt($response['answer']);
-        $ai = new local_ai_manager\manager('feedback');
-        $llmresponse = $ai->perform_request($fullaiprompt, ['component' => 'qtype_aitext', 'contextid' => $this->contextid]);
-        if ($llmresponse->get_code() !== 200) {
-            throw new moodle_exception(
-                'err_airesponsefailed',
-                'qtype_aitext',
-                '',
-                $llmresponse->get_errormessage(),
-                $llmresponse->get_debuginfo()
-            );
-        }
-        return $llmresponse->get_content();
+        $response = $this->perform_request($fullaiprompt, 'feedback');
+        return $response;
     }
 
     /**
@@ -178,7 +213,7 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
      */
     public function grade_response(array $response): array {
 
-        if($this->spellcheck) {
+        if ($this->spellcheck) {
             $spellcheckresponse = $this->get_spellchecking($response);
             $this->insert_attempt_step_data('-spellcheckresponse', $spellcheckresponse);
         }
@@ -187,25 +222,22 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
             $grade = [0 => 0, question_state::$needsgrading];
             return $grade;
         }
-        $ai = new local_ai_manager\manager('feedback');
         if (is_array($response)) {
             $fullaiprompt = $this->build_full_ai_prompt($response['answer'], $this->aiprompt,
                  $this->defaultmark, $this->markscheme);
-            $llmresponse = $ai->perform_request($fullaiprompt, ['component' => 'qtype_aitext', 'contextid' => $this->contextid]);
-            if ($llmresponse->get_code() !== 200) {
-                throw new moodle_exception('err_retrievingfeedback', 'qtype_aitext', '', $llmresponse->get_errormessage(),
-                        $llmresponse->get_debuginfo());
-            }
-            $feedback = $llmresponse->get_content();
+            $feedback = $this->perform_request($fullaiprompt, 'feedback');
         }
-
         $contentobject = $this->process_feedback($feedback);
 
         // If there are no marks, write the feedback and set to needs grading .
         if (is_null($contentobject->marks)) {
             $grade = [0 => 0, question_state::$needsgrading];
         } else {
-            $fraction = $contentobject->marks / $this->defaultmark;
+            if (is_numeric($contentobject->marks)) {
+                $fraction = $contentobject->marks / $this->defaultmark;
+            } else {
+                $fraction = 0.0;
+            }
             $grade = [$fraction, question_state::graded_state_for_fraction($fraction)];
         }
          // The -aicontent data is used in question preview. Only needs to happen in preview.
@@ -228,6 +260,12 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
      * @return string;
      */
     public function build_full_ai_prompt($response, $aiprompt, $defaultmark, $markscheme): string {
+
+        // Check if [questiontext] is in the aiprompt and replace it with the question text
+        if (strpos($aiprompt, '[questiontext]') !== false) {
+            $aiprompt = str_replace('[questiontext]', strip_tags($this->questiontext), $aiprompt);
+        }
+
         $responsetext = strip_tags($response);
             $responsetext = '[['.$responsetext.']]';
             $prompt = get_config('qtype_aitext', 'prompt');
@@ -243,9 +281,11 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
             $prompt .= ' Set marks to null in the json object.'.PHP_EOL;
         }
         $prompt .= ' '.trim(get_config('qtype_aitext', 'jsonprompt'));
-        $prompt .= ' translate the feedback to the language '.current_language();
-        return $prompt;
+        if (get_config('qtype_aitext', 'translatepostfix')) {
+            $prompt .= ' translate the feedback to the language '.current_language();
+        };
 
+        return $prompt;
     }
 
     /**
@@ -256,7 +296,6 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
      * @throws coding_exception
      */
     public function build_full_ai_spellchecking_prompt(string $response): string {
-        // $response = strip_tags($response);
         return get_string('spellcheck_prompt', 'qtype_aitext') . ($response);
     }
 
@@ -282,10 +321,6 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
             $contentobject->feedback = trim($contentobject->feedback);
             $contentobject->feedback = preg_replace(['/\[\[/', '/\]\]/'], '"', $contentobject->feedback);
             $disclaimer = get_config('qtype_aitext', 'disclaimer');
-            // TODO Model currently is only used for connecting and at this point I believe. We need to remove all the model
-            //  selection logic or make local_ai_manager support the selection of models.
-            $disclaimer = str_replace("[[model]]",
-                    \local_ai_manager\ai_manager_utils::get_connector_instance_by_purpose('feedback')->get_model(), $disclaimer);
             $contentobject->feedback .= ' '.$this->llm_translate($disclaimer);
         } else {
             $contentobject = (object) [
@@ -307,15 +342,15 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
         if (current_language() == 'en') {
             return $text;
         }
-        $ai = new local_ai_manager\manager('translate');
+        if (get_config('qtype_aitext', 'translatepostfix') == 0) {
+            return $text;
+        }
+
         $cache = cache::make('qtype_aitext', 'stringdata');
         if (($translation = $cache->get(current_language().'_'.$text)) === false) {
-            $prompt = 'translate "'.$text .'" into '.current_language();
-            $llmresponse = $ai->perform_request($prompt);
-            if ($llmresponse->get_code() !== 200) {
-                throw new moodle_exception('Could not retrieve the translation from the AI tool');
-            }
-            $translation = $llmresponse->get_content();
+            $prompt = 'translate "'.$text .'" into '.current_language() .
+                    'Only return the exact text, do not wrap it in other text.';
+            $translation = $this->perform_request($prompt, 'translate');
             $translation = trim($translation, '"');
             $cache->set(current_language().'_'.$text, $translation);
         }
