@@ -171,6 +171,29 @@ class qtype_aitext_renderer extends qtype_renderer {
         // Check if async grading is still in progress.
         $aigraded = $qa->get_last_qt_var('-aigraded');
 
+        if ($aigraded === 'pending_teacher') {
+            // AI grading was not triggered automatically — teacher must do it manually.
+            $output = html_writer::div(
+                get_string('autograde_pending_teacher', 'qtype_aitext'),
+                'qtype_aitext-pending-teacher alert alert-info'
+            );
+            // Show regrade button when in manual grading context.
+            if ($options->manualcomment == question_display_options::EDITABLE) {
+                $stepid = $qa->get_last_step()->get_id();
+                $output .= html_writer::tag(
+                    'button',
+                    get_string('regrade_ai', 'qtype_aitext'),
+                    [
+                        'type' => 'button',
+                        'class' => 'btn btn-primary qtype-aitext-trigger-regrade mt-2',
+                        'data-attemptstepid' => $stepid,
+                    ]
+                );
+                $this->page->requires->js_call_amd('qtype_aitext/regrade', 'init');
+            }
+            return $output;
+        }
+
         if ($aigraded === '0') {
             // AI grading is still pending. Show a progress bar.
             $output = '';
@@ -236,7 +259,7 @@ class qtype_aitext_renderer extends qtype_renderer {
         }
 
         $question = $qa->get_question();
-        return html_writer::nonempty_tag(
+        $output = html_writer::nonempty_tag(
             'div',
             $question->format_text(
                 $question->graderinfo,
@@ -248,6 +271,22 @@ class qtype_aitext_renderer extends qtype_renderer {
             ),
             ['class' => 'graderinfo']
         );
+
+        // Add regrade button for teachers to trigger (re)grading with AI.
+        $stepid = $qa->get_last_step()->get_id();
+        $output .= html_writer::tag(
+            'button',
+            get_string('regrade_ai', 'qtype_aitext'),
+            [
+                'type' => 'button',
+                'class' => 'btn btn-secondary qtype-aitext-trigger-regrade mt-2',
+                'data-attemptstepid' => $stepid,
+            ]
+        );
+
+        $this->page->requires->js_call_amd('qtype_aitext/regrade', 'init');
+
+        return $output;
     }
 
     /**

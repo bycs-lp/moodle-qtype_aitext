@@ -131,6 +131,8 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
     /** @var bool $spellcheck if spellcheck is enabled */
     public bool $spellcheck;
 
+    /** @var int $autograde Whether AI feedback is auto-generated on submission (1) or teacher must trigger manually (0). */
+    public int $autograde = 1;
 
     /** @var array  */
     public $sampleanswers;
@@ -239,6 +241,17 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
             return $this->grade_response_sync($response);
         }
 
+        // If autograde is disabled, skip AI grading — teacher must trigger it manually.
+        if (empty($this->autograde)) {
+            $this->insert_attempt_step_data('-aigraded', 'pending_teacher');
+            $this->insert_attempt_step_data(
+                '-comment',
+                get_string('autograde_pending_teacher', 'qtype_aitext')
+            );
+            $this->insert_attempt_step_data('-commentformat', FORMAT_HTML);
+            return [0.0, question_state::$needsgrading];
+        }
+
         // Queue the async grading task.
         $task = new grade_response();
         $task->set_custom_data([
@@ -253,18 +266,20 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
         ]);
         $task->set_userid($this->step->get_user_id());
 
-        // Initialise the stored progress bar before queueing so it can be polled.
-        $task->initialise_stored_progress();
-        $task->set_initial_progress();
-
         \core\task\manager::queue_adhoc_task($task);
 
-        // Store the progress bar idnumber so the renderer can display it.
-        $progressidnumber = \core\output\stored_progress_bar::convert_to_idnumber(
-            grade_response::class,
-            $task->get_id()
-        );
-        $this->insert_attempt_step_data('-aiprogressidnumber', $progressidnumber);
+        // Initialise progress bar after queueing so the task has a valid ID.
+        $taskid = $task->get_id();
+        if (!empty($taskid)) {
+            $task->initialise_stored_progress();
+            $task->set_initial_progress();
+
+            $progressidnumber = \core\output\stored_progress_bar::convert_to_idnumber(
+                grade_response::class,
+                $taskid
+            );
+            $this->insert_attempt_step_data('-aiprogressidnumber', $progressidnumber);
+        }
 
         // Store a placeholder while the async task is running.
         $this->insert_attempt_step_data('-aigraded', '0');
@@ -609,6 +624,86 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
             'value' => $value,
         ];
         $DB->insert_record('question_attempt_step_data', $data);
+    }
+
+    /**
+     * Trigger AI regrading for a specific attempt step, running under a given teacher's identity.
+     *
+     * This queues an adhoc task that will generate new AI feedback. The task runs
+     * as the specified teacher, so the teacher's AI model and quota are used.
+     *
+     * @param int $attemptstepid The question_attempt_step ID to regrade.
+     * @param string $response The student's response text.
+     * @param int $teacheruserid The user ID of the teacher triggering the regrade.
+     * @param int $contextid The context ID for AI requests.
+     */
+    public function trigger_ai_regrade(int $attemptstepid, string $response, int $teacheruserid, int $contextid): void {
+        $task = new grade_response();
+        $task->set_custom_data([
+            'attemptstepid' => $attemptstepid,
+            'response' => $response,
+            'questionid' => $this->id,
+            'defaultmark' => $this->defaultmark,
+            'aiprompt' => $this->aiprompt,
+            'markscheme' => $this->markscheme,
+            'spellcheck' => $this->spellcheck,
+            'contextid' => $contextid,
+        ]);
+        // Run as the teacher so the teacher's AI model and quota are used.
+        $task->set_userid($teacheruserid);
+
+        \core\task\manager::queue_adhoc_task($task);
+
+        // Initialise progress bar after queueing so the task has a valid ID.
+        $taskid = $task->get_id();
+        if (!empty($taskid)) {
+            $task->initialise_stored_progress();
+            $task->set_initial_progress();
+
+            $progressidnumber = \core\output\stored_progress_bar::convert_to_idnumber(
+                grade_response::class,
+                $taskid
+            );
+            $this->update_or_insert_step_data($attemptstepid, '-aiprogressidnumber', $progressidnumber);
+        }
+
+        // Update the step data to indicate regrading is in progress.
+        $this->update_or_insert_step_data($attemptstepid, '-aigraded', '0');
+        $this->update_or_insert_step_data(
+            $attemptstepid,
+            '-comment',
+            get_string('async_grading_placeholder', 'qtype_aitext')
+        );
+        $this->update_or_insert_step_data($attemptstepid, '-commentformat', FORMAT_HTML);
+    }
+
+    /**
+     * Update or insert a question_attempt_step_data record.
+     *
+     * Used by trigger_ai_regrade() where the step may already have data from a previous grading.
+     *
+     * @param int $attemptstepid The attempt step ID.
+     * @param string $name The data key name.
+     * @param string $value The data value.
+     */
+    protected function update_or_insert_step_data(int $attemptstepid, string $name, string $value): void {
+        global $DB;
+
+        $existing = $DB->get_record('question_attempt_step_data', [
+            'attemptstepid' => $attemptstepid,
+            'name' => $name,
+        ]);
+
+        if ($existing) {
+            $existing->value = $value;
+            $DB->update_record('question_attempt_step_data', $existing);
+        } else {
+            $DB->insert_record('question_attempt_step_data', [
+                'attemptstepid' => $attemptstepid,
+                'name' => $name,
+                'value' => $value,
+            ]);
+        }
     }
 
     /**

@@ -115,5 +115,19 @@ function xmldb_qtype_aitext_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026020601, 'qtype', 'aitext');
     }
 
+    if ($oldversion < 2026040302) {
+        // Define field autograde to be added to qtype_aitext.
+        $table = new xmldb_table('qtype_aitext');
+        $field = new xmldb_field('autograde', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '1', 'spellcheck');
+
+        // Conditionally launch add field autograde.
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        // Aitext savepoint reached.
+        upgrade_plugin_savepoint(true, 2026040302, 'qtype', 'aitext');
+    }
+
     return true;
 }

@@ -55,6 +55,11 @@ class qtype_aitext_edit_form extends question_edit_form {
         // Spelling correction.
         $mform->addElement('checkbox', 'spellcheck', get_string('automatic_spellcheck', 'qtype_aitext'));
 
+        // Automatic AI grading on submission.
+        $mform->addElement('checkbox', 'autograde', get_string('autograde', 'qtype_aitext'));
+        $mform->setDefault('autograde', 1);
+        $mform->addHelpButton('autograde', 'autograde', 'qtype_aitext');
+
         // Ai prompt.
         $mform->addElement(
             'textarea',
@@ -271,6 +276,7 @@ class qtype_aitext_edit_form extends question_edit_form {
         $question->maxwordlimit = $question->options->maxwordlimit;
         $question->aiprompt = $question->options->aiprompt;
         $question->spellcheck = $question->options->spellcheck;
+        $question->autograde = $question->options->autograde ?? 1;
         // Make the count start from 0 like the repeat array elements.
         $question->sampleresponses = [];
         foreach ($question->options->sampleresponses as $sampleresponse) {

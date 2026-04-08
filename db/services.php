@@ -31,12 +31,19 @@
 defined('MOODLE_INTERNAL') || die();
 
 $functions = [
-        'qtype_aitext_fetch_ai_grade' => [
-                'classname'   => 'qtype_aitext_external',
-                'methodname'  => 'fetch_ai_grade',
-                'description' => 'checks a response with the AI grader',
-                'capabilities' => 'mod/quiz:grade',
-                'type'        => 'read',
-                'ajax'        => true,
-        ],
+    'qtype_aitext_fetch_ai_grade' => [
+        'classname'   => 'qtype_aitext_external',
+        'methodname'  => 'fetch_ai_grade',
+        'description' => 'checks a response with the AI grader',
+        'capabilities' => 'mod/quiz:grade',
+        'type'        => 'read',
+        'ajax'        => true,
+    ],
+    'qtype_aitext_trigger_regrade' => [
+        'classname'   => 'qtype_aitext\\external\\trigger_regrade',
+        'description' => 'Trigger AI regrading for aitext question attempt steps',
+        'capabilities' => 'mod/quiz:grade',
+        'type'        => 'write',
+        'ajax'        => true,
+    ],
 ];
