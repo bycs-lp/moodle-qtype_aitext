@@ -28,6 +28,7 @@ defined('MOODLE_INTERNAL') || die();
 
 require_once($CFG->dirroot . '/question/type/questionbase.php');
 
+use qtype_aitext\task\grade_response;
 
 /**
  * Represents an aitext question.
@@ -130,6 +131,8 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
     /** @var bool $spellcheck if spellcheck is enabled */
     public bool $spellcheck;
 
+    /** @var int $autograde Whether AI feedback is auto-generated on submission (1) or teacher must trigger manually (0). */
+    public int $autograde = 1;
 
     /** @var array  */
     public $sampleanswers;
@@ -220,37 +223,89 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
     }
 
     /**
-     * Get the spellchecking response.
+     * Grade response by queueing an adhoc task for asynchronous
+     * AI evaluation. Returns a placeholder grade immediately.
+     * In preview mode, grading is done synchronously.
      *
      * @param array $response
-     * @return string
-     * @throws coding_exception
-     * @throws dml_exception
-     * @throws moodle_exception
-     */
-    private function get_spellchecking(array $response): string {
-        $fullaiprompt = $this->build_full_ai_spellchecking_prompt($response['answer']);
-        $response = $this->perform_request($fullaiprompt, 'feedback');
-        return $response;
-    }
-
-    /**
-     * Grade response by making a call to external
-     * large language model such as ChatGPT
-     *
-     * @param array $response
-     * @return void
+     * @return array
      */
     public function grade_response(array $response): array {
-
-        if ($this->spellcheck) {
-            $spellcheckresponse = $this->get_spellchecking($response);
-            $this->insert_attempt_step_data('-spellcheckresponse', $spellcheckresponse);
-        }
         if (!$this->is_complete_response($response)) {
             $grade = [0 => 0, question_state::$needsgrading];
             return $grade;
         }
+
+        // In preview mode, grade synchronously so the teacher gets instant feedback.
+        if ($this->is_preview_context()) {
+            return $this->grade_response_sync($response);
+        }
+
+        // If autograde is disabled, skip AI grading — teacher must trigger it manually.
+        if (empty($this->autograde)) {
+            $this->insert_attempt_step_data('-aigraded', 'pending_teacher');
+            $this->insert_attempt_step_data(
+                '-comment',
+                get_string('autograde_pending_teacher', 'qtype_aitext')
+            );
+            $this->insert_attempt_step_data('-commentformat', FORMAT_HTML);
+            return [0.0, question_state::$needsgrading];
+        }
+
+        // Queue the async grading task.
+        $task = new grade_response();
+        $task->set_custom_data([
+            'attemptstepid' => $this->step->get_id(),
+            'response' => $response['answer'],
+            'questionid' => $this->id,
+            'defaultmark' => $this->defaultmark,
+            'aiprompt' => $this->aiprompt,
+            'markscheme' => $this->markscheme,
+            'spellcheck' => $this->spellcheck,
+            'contextid' => $this->get_contextid_for_ai_request(),
+        ]);
+        $task->set_userid($this->step->get_user_id());
+
+        \core\task\manager::queue_adhoc_task($task);
+
+        // Initialise progress bar after queueing so the task has a valid ID.
+        $taskid = $task->get_id();
+        if (!empty($taskid)) {
+            $task->initialise_stored_progress();
+            $task->set_initial_progress();
+
+            $progressidnumber = \core\output\stored_progress_bar::convert_to_idnumber(
+                grade_response::class,
+                $taskid
+            );
+            $this->insert_attempt_step_data('-aiprogressidnumber', $progressidnumber);
+        }
+
+        // Store a placeholder while the async task is running.
+        $this->insert_attempt_step_data('-aigraded', '0');
+        $this->insert_attempt_step_data(
+            '-comment',
+            get_string('async_grading_placeholder', 'qtype_aitext')
+        );
+        $this->insert_attempt_step_data('-commentformat', FORMAT_HTML);
+
+        // Return "needs grading" — the actual grade will be written by the adhoc task.
+        return [0.0, question_state::$needsgrading];
+    }
+
+    /**
+     * Grade response synchronously (used in preview mode).
+     *
+     * @param array $response
+     * @return array
+     */
+    private function grade_response_sync(array $response): array {
+        if ($this->spellcheck) {
+            $fullaispellcheckprompt = $this->build_full_ai_spellchecking_prompt($response['answer']);
+            $spellcheckresponse = $this->perform_request($fullaispellcheckprompt, 'feedback');
+            $this->insert_attempt_step_data('-spellcheckresponse', $spellcheckresponse);
+        }
+
         $fullaiprompt = $this->build_full_ai_prompt(
             $response['answer'],
             $this->aiprompt,
@@ -260,7 +315,6 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
         $feedback = $this->perform_request($fullaiprompt, 'feedback');
         $contentobject = $this->process_feedback($feedback);
 
-        // If there are no marks, write the feedback and set to needs grading .
         if (is_null($contentobject->marks)) {
             $grade = [0.0, question_state::$needsgrading];
         } else {
@@ -271,14 +325,26 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
             $grade = [$fraction, question_state::graded_state_for_fraction($fraction)];
         }
 
-         // The -aicontent data is used in question preview. Only needs to happen in preview.
         $this->insert_attempt_step_data('-aiprompt', $fullaiprompt);
         $this->insert_attempt_step_data('-aicontent', $contentobject->feedback);
-
         $this->insert_attempt_step_data('-comment', $contentobject->feedback);
         $this->insert_attempt_step_data('-commentformat', FORMAT_HTML);
 
         return $grade;
+    }
+
+    /**
+     * Check if the current context is a question preview.
+     *
+     * @return bool
+     */
+    private function is_preview_context(): bool {
+        global $PAGE;
+        try {
+            return str_contains($PAGE->pagetype ?? '', 'question-bank-previewquestion');
+        } catch (\Exception $e) {
+            return false;
+        }
     }
 
     /**
@@ -535,7 +601,7 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
         $cache = cache::make('qtype_aitext', 'stringdata');
         if (($translation = $cache->get(current_language() . '_' . $text)) === false) {
             $prompt = 'translate "' . $text . '" into ' . current_language() .
-                    'Only return the exact text, do not wrap it in other text.';
+                'Only return the exact text, do not wrap it in other text.';
             $translation = $this->perform_request($prompt, 'translate');
             $translation = trim($translation, '"');
             $cache->set(current_language() . '_' . $text, $translation);
@@ -558,6 +624,111 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
             'value' => $value,
         ];
         $DB->insert_record('question_attempt_step_data', $data);
+    }
+
+    /**
+     * Trigger AI regrading for a specific attempt step, running under a given teacher's identity.
+     *
+     * This queues an adhoc task that will generate new AI feedback. The task runs
+     * as the specified teacher, so the teacher's AI model and quota are used.
+     *
+     * @param int $attemptstepid The question_attempt_step ID to regrade.
+     * @param string $response The student's response text.
+     * @param int $teacheruserid The user ID of the teacher triggering the regrade.
+     * @param int $contextid The context ID for AI requests.
+     */
+    public function trigger_ai_regrade(int $attemptstepid, string $response, int $teacheruserid, int $contextid): void {
+        global $DB;
+
+        // Guard against double regrade — if already in progress, skip.
+        $currentstate = $DB->get_field('question_attempt_step_data', 'value', [
+            'attemptstepid' => $attemptstepid,
+            'name' => '-aigraded',
+        ]);
+        if ($currentstate === '0') {
+            return; // Already in progress.
+        }
+
+        $task = new grade_response();
+        $task->set_custom_data([
+            'attemptstepid' => $attemptstepid,
+            'response' => $response,
+            'questionid' => $this->id,
+            'defaultmark' => $this->defaultmark,
+            'aiprompt' => $this->aiprompt,
+            'markscheme' => $this->markscheme,
+            'spellcheck' => $this->spellcheck,
+            'contextid' => $contextid,
+        ]);
+        // Run as the teacher so the teacher's AI model and quota are used.
+        $task->set_userid($teacheruserid);
+
+        \core\task\manager::queue_adhoc_task($task);
+
+        // Initialise progress bar after queueing so the task has a valid ID.
+        $taskid = $task->get_id();
+        if (!empty($taskid)) {
+            $task->initialise_stored_progress();
+            $task->set_initial_progress();
+
+            $progressidnumber = \core\output\stored_progress_bar::convert_to_idnumber(
+                grade_response::class,
+                $taskid
+            );
+            self::upsert_step_data($attemptstepid, '-aiprogressidnumber', $progressidnumber);
+        }
+
+        // Update the step data to indicate regrading is in progress.
+        self::upsert_step_data($attemptstepid, '-aigraded', '0');
+        self::upsert_step_data(
+            $attemptstepid,
+            '-comment',
+            get_string('async_grading_placeholder', 'qtype_aitext')
+        );
+        self::upsert_step_data($attemptstepid, '-commentformat', FORMAT_HTML);
+    }
+
+    /**
+     * Update or insert a question_attempt_step_data record.
+     *
+     * Shared upsert method used by both the question class and the adhoc task
+     * to avoid duplicating this logic.
+     *
+     * @param int $attemptstepid The attempt step ID.
+     * @param string $name The data key name.
+     * @param string $value The data value.
+     */
+    public static function upsert_step_data(int $attemptstepid, string $name, string $value): void {
+        global $DB;
+
+        $existing = $DB->get_record('question_attempt_step_data', [
+            'attemptstepid' => $attemptstepid,
+            'name' => $name,
+        ]);
+
+        if ($existing) {
+            $existing->value = $value;
+            $DB->update_record('question_attempt_step_data', $existing);
+        } else {
+            $DB->insert_record('question_attempt_step_data', [
+                'attemptstepid' => $attemptstepid,
+                'name' => $name,
+                'value' => $value,
+            ]);
+        }
+    }
+
+    /**
+     * Update or insert a question_attempt_step_data record (instance wrapper).
+     *
+     * Used by trigger_ai_regrade() where the step may already have data from a previous grading.
+     *
+     * @param int $attemptstepid The attempt step ID.
+     * @param string $name The data key name.
+     * @param string $value The data value.
+     */
+    protected function update_or_insert_step_data(int $attemptstepid, string $name, string $value): void {
+        self::upsert_step_data($attemptstepid, $name, $value);
     }
 
     /**
@@ -672,7 +843,7 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
             return true;
         } else if (
             array_key_exists('attachments', $response)
-                && $response['attachments'] instanceof question_response_files
+            && $response['attachments'] instanceof question_response_files
         ) {
             return true;
         } else {
@@ -772,7 +943,7 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
      *
      * @param string $responsestring
      * @return string|null
-     .*/
+    .*/
     private function check_input_word_count($responsestring) {
 
         if (!$this->minwordlimit && !$this->maxwordlimit) {
@@ -882,7 +1053,7 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
         }
 
         // We usually should not get here, but if we do, we are falling back to the system context.
-        $this->attemptcontextid = context_system::instance()->id;
+        $this->attemptcontextid = \core\context\system::instance()->id;
         return $this->attemptcontextid;
     }
 }

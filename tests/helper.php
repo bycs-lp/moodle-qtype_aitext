@@ -57,6 +57,7 @@ class qtype_aitext_test_helper extends question_test_helper {
         $question->aiprompt = $options['aiprompt'] ?? '';
         $question->contextid = 1;
         $question->spellcheck = 0;
+        $question->autograde = $options['autograde'] ?? 1;
         $question->step = new class {
             /**
              * Placeholder to avoid error.
@@ -128,6 +129,7 @@ class qtype_aitext_test_helper extends question_test_helper {
         $fromform->markscheme = 'Give one mark if the answer is correct';
         $fromform->sampleresponses[] = 'response1';
         $fromform->model = 'gpt-4';
+        $fromform->autograde = 1;
         return $fromform;
     }
 
@@ -166,6 +168,7 @@ class qtype_aitext_test_helper extends question_test_helper {
         $fromform->status = \core_question\local\bank\question_version_status::QUESTION_STATUS_READY;
         $fromform->sampleresponses[] = 'response1';
         $fromform->model = 'gpt-4';
+        $fromform->autograde = 1;
         return $fromform;
     }
 

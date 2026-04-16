@@ -124,6 +124,7 @@ class qtype_aitext extends question_type {
         }
 
         $options->spellcheck = !empty($formdata->spellcheck);
+        $options->autograde = !empty($formdata->autograde) ? 1 : 0;
         $options->aiprompt = $formdata->aiprompt;
         $options->markscheme = $formdata->markscheme;
         $options->model = trim($formdata->model);
@@ -179,6 +180,7 @@ class qtype_aitext extends question_type {
         $question->responsetemplateformat = $questiondata->options->responsetemplateformat;
         $question->aiprompt = $questiondata->options->aiprompt;
         $question->markscheme = $questiondata->options->markscheme;
+        $question->autograde = (int) ($questiondata->options->autograde ?? 1);
         parent::get_question_options($question);
         $question->sampleresponses = $this->get_sampleresponses($question);
 
@@ -309,6 +311,7 @@ class qtype_aitext extends question_type {
             'markscheme',
             'model',
             'spellcheck',
+            'autograde',
         ];
     }
     /**
