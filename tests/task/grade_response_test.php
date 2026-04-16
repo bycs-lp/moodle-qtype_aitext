@@ -20,7 +20,8 @@ namespace qtype_aitext\task;
  * Tests for the async grade_response adhoc task.
  *
  * @package    qtype_aitext
- * @copyright  2026 Fabian Barbuia
+ * @copyright  2026 ISB Bayern
+ * @author     Fabian Barbuia
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers     \qtype_aitext\task\grade_response
  */
@@ -43,7 +44,7 @@ final class grade_response_test extends \advanced_testcase {
             'aiprompt' => 'Grade this response',
             'markscheme' => 'Full marks for any answer',
             'spellcheck' => false,
-            'contextid' => \context_system::instance()->id,
+            'contextid' => \core\context\system::instance()->id,
         ]);
 
         \core\task\manager::queue_adhoc_task($task);

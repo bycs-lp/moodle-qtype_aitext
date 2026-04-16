@@ -272,19 +272,23 @@ class qtype_aitext_renderer extends qtype_renderer {
             ['class' => 'graderinfo']
         );
 
-        // Add regrade button for teachers to trigger (re)grading with AI.
-        $stepid = $qa->get_last_step()->get_id();
-        $output .= html_writer::tag(
-            'button',
-            get_string('regrade_ai', 'qtype_aitext'),
-            [
-                'type' => 'button',
-                'class' => 'btn btn-secondary qtype-aitext-trigger-regrade mt-2',
-                'data-attemptstepid' => $stepid,
-            ]
-        );
+        // Only show the regrade button here if it was NOT already shown in feedback()
+        // (feedback() renders the button for the pending_teacher state).
+        $aigraded = $qa->get_last_qt_var('-aigraded');
+        if ($aigraded !== 'pending_teacher') {
+            $stepid = $qa->get_last_step()->get_id();
+            $output .= html_writer::tag(
+                'button',
+                get_string('regrade_ai', 'qtype_aitext'),
+                [
+                    'type' => 'button',
+                    'class' => 'btn btn-secondary qtype-aitext-trigger-regrade mt-2',
+                    'data-attemptstepid' => $stepid,
+                ]
+            );
 
-        $this->page->requires->js_call_amd('qtype_aitext/regrade', 'init');
+            $this->page->requires->js_call_amd('qtype_aitext/regrade', 'init');
+        }
 
         return $output;
     }

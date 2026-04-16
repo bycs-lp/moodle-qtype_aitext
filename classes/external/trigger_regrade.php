@@ -29,7 +29,8 @@ use core_external\external_value;
  * teacher's identity so the teacher's AI model and quota are used.
  *
  * @package    qtype_aitext
- * @copyright  2026 Fabian Barbuia
+ * @copyright  2026 ISB Bayern
+ * @author     Fabian Barbuia
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class trigger_regrade extends external_api {
@@ -86,9 +87,8 @@ class trigger_regrade extends external_api {
             }
 
             // Validate context and capability.
-            $context = \context::instance_by_id($record->contextid);
+            $context = \core\context::instance_by_id($record->contextid);
             self::validate_context($context);
-            require_capability('mod/quiz:grade', $context);
 
             // Load the question and verify it is an aitext question.
             $questiondata = \question_bank::load_question_data($record->questionid);
@@ -115,6 +115,13 @@ class trigger_regrade extends external_api {
                 (int) $record->contextid
             );
             $count++;
+        }
+
+        if ($count === 0) {
+            return [
+                'count' => 0,
+                'message' => get_string('regrade_ai_nothingselected', 'qtype_aitext'),
+            ];
         }
 
         return [

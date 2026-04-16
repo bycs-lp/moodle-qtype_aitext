@@ -22,7 +22,8 @@ use core\task\adhoc_task;
  * Adhoc task for asynchronous AI grading of aitext question responses.
  *
  * @package    qtype_aitext
- * @copyright  2026 Fabian Barbuia
+ * @copyright  2026 ISB Bayern
+ * @author     Fabian Barbuia
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class grade_response extends adhoc_task {
@@ -96,6 +97,14 @@ class grade_response extends adhoc_task {
             $this->insert_attempt_step_data($attemptstepid, '-aistate', $statename);
             $this->insert_attempt_step_data($attemptstepid, '-aigraded', '1');
 
+            // Update the question_attempt_steps record so the Question Engine sees the new state.
+            $steprecord = $DB->get_record('question_attempt_steps', ['id' => $attemptstepid], '*', MUST_EXIST);
+            $steprecord->fraction = $fraction;
+            $steprecord->state = ($statename === 'graded')
+                ? (string) \question_state::graded_state_for_fraction($fraction)
+                : 'needsgrading';
+            $DB->update_record('question_attempt_steps', $steprecord);
+
             $this->progress->update_full(
                 100,
                 get_string('async_grading_complete', 'qtype_aitext')
@@ -125,31 +134,16 @@ class grade_response extends adhoc_task {
     }
 
     /**
-     * Insert attempt step data directly into the database.
+     * Insert or update attempt step data directly into the database.
+     *
+     * Delegates to the shared upsert method on the question class.
      *
      * @param int $attemptstepid The attempt step ID.
      * @param string $name The data name.
      * @param string $value The data value.
      */
     private function insert_attempt_step_data(int $attemptstepid, string $name, string $value): void {
-        global $DB;
-
-        // Update if exists, otherwise insert.
-        $existing = $DB->get_record('question_attempt_step_data', [
-            'attemptstepid' => $attemptstepid,
-            'name' => $name,
-        ]);
-
-        if ($existing) {
-            $existing->value = $value;
-            $DB->update_record('question_attempt_step_data', $existing);
-        } else {
-            $DB->insert_record('question_attempt_step_data', [
-                'attemptstepid' => $attemptstepid,
-                'name' => $name,
-                'value' => $value,
-            ]);
-        }
+        \qtype_aitext_question::upsert_step_data($attemptstepid, $name, $value);
     }
 
     /**

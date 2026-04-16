@@ -101,7 +101,7 @@ class qtype_aitext_external extends external_api {
                 'contextid'   => $contextid,
             ]
         );
-        $context = $contextid === 0 ? context_system::instance() : context::instance_by_id($contextid);
+        $context = $contextid === 0 ? \core\context\system::instance() : \core\context::instance_by_id($contextid);
         self::validate_context($context);
 
         // TODO Eventually move this to a own capability which by default is assigned to a teacher in a course.

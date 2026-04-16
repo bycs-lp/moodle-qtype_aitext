@@ -341,7 +341,7 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
     private function is_preview_context(): bool {
         global $PAGE;
         try {
-            return strpos($PAGE->pagetype, 'question-bank-previewquestion') !== false;
+            return str_contains($PAGE->pagetype ?? '', 'question-bank-previewquestion');
         } catch (\Exception $e) {
             return false;
         }
@@ -638,6 +638,17 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
      * @param int $contextid The context ID for AI requests.
      */
     public function trigger_ai_regrade(int $attemptstepid, string $response, int $teacheruserid, int $contextid): void {
+        global $DB;
+
+        // Guard against double regrade — if already in progress, skip.
+        $currentstate = $DB->get_field('question_attempt_step_data', 'value', [
+            'attemptstepid' => $attemptstepid,
+            'name' => '-aigraded',
+        ]);
+        if ($currentstate === '0') {
+            return; // Already in progress.
+        }
+
         $task = new grade_response();
         $task->set_custom_data([
             'attemptstepid' => $attemptstepid,
@@ -664,29 +675,30 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
                 grade_response::class,
                 $taskid
             );
-            $this->update_or_insert_step_data($attemptstepid, '-aiprogressidnumber', $progressidnumber);
+            self::upsert_step_data($attemptstepid, '-aiprogressidnumber', $progressidnumber);
         }
 
         // Update the step data to indicate regrading is in progress.
-        $this->update_or_insert_step_data($attemptstepid, '-aigraded', '0');
-        $this->update_or_insert_step_data(
+        self::upsert_step_data($attemptstepid, '-aigraded', '0');
+        self::upsert_step_data(
             $attemptstepid,
             '-comment',
             get_string('async_grading_placeholder', 'qtype_aitext')
         );
-        $this->update_or_insert_step_data($attemptstepid, '-commentformat', FORMAT_HTML);
+        self::upsert_step_data($attemptstepid, '-commentformat', FORMAT_HTML);
     }
 
     /**
      * Update or insert a question_attempt_step_data record.
      *
-     * Used by trigger_ai_regrade() where the step may already have data from a previous grading.
+     * Shared upsert method used by both the question class and the adhoc task
+     * to avoid duplicating this logic.
      *
      * @param int $attemptstepid The attempt step ID.
      * @param string $name The data key name.
      * @param string $value The data value.
      */
-    protected function update_or_insert_step_data(int $attemptstepid, string $name, string $value): void {
+    public static function upsert_step_data(int $attemptstepid, string $name, string $value): void {
         global $DB;
 
         $existing = $DB->get_record('question_attempt_step_data', [
@@ -704,6 +716,19 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
                 'value' => $value,
             ]);
         }
+    }
+
+    /**
+     * Update or insert a question_attempt_step_data record (instance wrapper).
+     *
+     * Used by trigger_ai_regrade() where the step may already have data from a previous grading.
+     *
+     * @param int $attemptstepid The attempt step ID.
+     * @param string $name The data key name.
+     * @param string $value The data value.
+     */
+    protected function update_or_insert_step_data(int $attemptstepid, string $name, string $value): void {
+        self::upsert_step_data($attemptstepid, $name, $value);
     }
 
     /**
@@ -1028,7 +1053,7 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
         }
 
         // We usually should not get here, but if we do, we are falling back to the system context.
-        $this->attemptcontextid = context_system::instance()->id;
+        $this->attemptcontextid = \core\context\system::instance()->id;
         return $this->attemptcontextid;
     }
 }

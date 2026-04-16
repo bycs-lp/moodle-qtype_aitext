@@ -33,7 +33,8 @@ require_once($CFG->dirroot . '/question/type/aitext/question.php');
  * Tests for the autograde setting and teacher regrade functionality (MBS-10691).
  *
  * @package    qtype_aitext
- * @copyright  2026 Fabian Barbuia
+ * @copyright  2026 ISB Bayern
+ * @author     Fabian Barbuia
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers     \qtype_aitext_question
  */
@@ -241,7 +242,7 @@ final class question_autograde_test extends advanced_testcase {
         $comment = $this->get_step_data_value($stepid, '-comment');
         $this->assertNotFalse($comment, 'Comment step data must be written.');
         $this->assertStringContainsString(
-            'A teacher must trigger it manually',
+            strip_tags(get_string('autograde_pending_teacher', 'qtype_aitext')),
             strip_tags($comment),
             'Pending teacher message should be present in the comment.'
         );
@@ -292,7 +293,7 @@ final class question_autograde_test extends advanced_testcase {
             $stepid,
             'Student wrote this response.',
             (int) $teacher->id,
-            \context_system::instance()->id
+            \core\context\system::instance()->id
         );
 
         // Verify the task was queued with the correct teacher.
@@ -321,7 +322,7 @@ final class question_autograde_test extends advanced_testcase {
             $stepid,
             'Student response',
             (int) $teacher->id,
-            \context_system::instance()->id
+            \core\context\system::instance()->id
         );
 
         // Verify all expected step data was written.
@@ -408,7 +409,7 @@ final class question_autograde_test extends advanced_testcase {
             $stepid,
             'Student response for regrading.',
             (int) $teacher->id,
-            \context_system::instance()->id
+            \core\context\system::instance()->id
         );
 
         // The -aigraded must be '0' (in progress), regardless of previous state.
@@ -421,7 +422,7 @@ final class question_autograde_test extends advanced_testcase {
         // The -comment must contain the async placeholder, not old data.
         $comment = $this->get_step_data_value($stepid, '-comment');
         $this->assertStringContainsString(
-            'AI feedback is being generated',
+            strip_tags(get_string('async_grading_placeholder', 'qtype_aitext')),
             strip_tags($comment),
             'Comment must be overwritten with the async placeholder.'
         );
@@ -512,7 +513,7 @@ final class question_autograde_test extends advanced_testcase {
         // Build form data and set the autograde value.
         $formdata = \test_question_maker::get_question_form_data('aitext', 'editor');
         $formdata->id = $questiondata->id;
-        $formdata->context = \context::instance_by_id($category->contextid);
+        $formdata->context = \core\context::instance_by_id($category->contextid);
         $formdata->autograde = $autograde;
 
         $qtype = question_bank::get_qtype('aitext');
@@ -565,17 +566,17 @@ final class question_autograde_test extends advanced_testcase {
         $question = $this->create_question_with_autograde(0);
         $stepid = $this->create_db_step($question->id);
         $teacher = $this->getDataGenerator()->create_user();
-        $contextid = \context_system::instance()->id;
+        $contextid = \core\context\system::instance()->id;
 
         // First regrade.
         $question->trigger_ai_regrade($stepid, 'Response v1', (int) $teacher->id, $contextid);
 
-        // Second regrade (e.g. teacher clicked again).
+        // Second regrade (e.g. teacher clicked again) — should be blocked by race condition guard.
         $question->trigger_ai_regrade($stepid, 'Response v1', (int) $teacher->id, $contextid);
 
-        // Two tasks should be queued (both are valid).
+        // Only one task should be queued because the guard blocks the second call while first is in progress.
         $tasks = $DB->get_records('task_adhoc', ['classname' => self::TASK_CLASSNAME]);
-        $this->assertCount(2, $tasks, 'Both regrade requests should queue their own task.');
+        $this->assertCount(1, $tasks, 'Second regrade should be blocked while first is in progress.');
 
         // No duplicate records for any key.
         foreach (['-aigraded', '-comment', '-commentformat'] as $key) {
