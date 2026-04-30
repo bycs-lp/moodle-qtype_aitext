@@ -139,6 +139,9 @@ class qtype_aitext_question extends question_graded_automatically {
     /** @var string|null Cached spellcheck response from the last grade_response() call. */
     public $lastspellcheckresponse = null;
 
+    /** @var \stdClass|null User to impersonate for AI requests during CLI/cron grading. */
+    private ?\stdClass $gradinguser = null;
+
     /**
      * Choose the question behaviour to use for this question attempt.
      *
@@ -198,20 +201,21 @@ class qtype_aitext_question extends question_graded_automatically {
         $this->lastaiprompt = null;
         $this->lastspellcheckresponse = null;
         $this->attemptcontextid = null;
+        $this->gradinguser = null;
         // Resolve the usage context from the step.
-        $this->resolve_attempt_context($step);
+        $this->resolve_attempt_context_and_user($step);
     }
 
     /**
-     * Resolve the attempt (usage) context from a step and cache it.
+     * Resolve the attempt (usage) context and user from a step and cache it.
      *
-     * Walks step → question_attempt → question_usage → context via DB.
+     * Walks step → question_attempt → question_usage → context and quiz attempt via DB.
      * Ignores user contexts because AI permission checks cannot be
      * evaluated for them (typically means question preview).
      *
      * @param question_attempt_step $step A step belonging to this attempt.
      */
-    private function resolve_attempt_context(question_attempt_step $step): void {
+    private function resolve_attempt_context_and_user(question_attempt_step $step): void {
         global $DB;
 
         $stepid = 0;
@@ -223,19 +227,26 @@ class qtype_aitext_question extends question_graded_automatically {
             return;
         }
 
-        $sql = "SELECT qu.contextid
+        $sql = "SELECT qu.contextid, quiza.userid
               FROM {question_attempt_steps} qas
               JOIN {question_attempts} qa ON qa.id = qas.questionattemptid
               JOIN {question_usages} qu ON qu.id = qa.questionusageid
               JOIN {context} c ON c.id = qu.contextid
+         LEFT JOIN {quiz_attempts} quiza ON quiza.uniqueid = qu.id
              WHERE qas.id = :stepid AND c.contextlevel <> :contextlevel";
-        $contextid = $DB->get_field_sql($sql, [
+        $row = $DB->get_record_sql($sql, [
             'stepid' => $stepid,
             'contextlevel' => CONTEXT_USER,
         ]);
-        if (!empty($contextid)) {
-            $this->attemptcontextid = (int) $contextid;
+        if ($row) {
+            if (!empty($row->contextid)) {
+                $this->attemptcontextid = (int) $row->contextid;
+            }
+            if (!empty($row->userid)) {
+                $this->gradinguser = $DB->get_record('user', ['id' => $row->userid]) ?: null;
+            }
         }
+
     }
 
     /**
@@ -246,14 +257,33 @@ class qtype_aitext_question extends question_graded_automatically {
      * @param string $purpose
      */
     public function perform_request(string $prompt, string $purpose = 'feedback'): string {
+        global $USER;
         if (defined('BEHAT_SITE_RUNNING') || (defined('PHPUNIT_TEST') && PHPUNIT_TEST)) {
             return "AI Feedback";
         }
         $contextid = $this->get_contextid_for_ai_request();
         $backend = get_config('qtype_aitext', 'backend');
         if ($backend == 'local_ai_manager') {
-            $manager = new local_ai_manager\manager($purpose);
-            $llmresponse = (object) $manager->perform_request($prompt, 'qtype_aitext', $contextid);
+            // The ai_manager internally uses global $USER for permission/quota checks.
+            // When grading happens in cron/CLI context, we need to temporarily switch
+            // to the resolved grading user (attempt owner or explicitly set user).
+            $originaluser = $USER;
+            $targetuser = $this->resolve_grading_user();
+            $needsswitch = ($targetuser->id != $USER->id);
+            if ($needsswitch) {
+                \core\session\manager::set_user($targetuser);
+            }
+
+            try {
+                $manager = new \local_ai_manager\manager($purpose);
+                $llmresponse = $manager->perform_request($prompt, 'qtype_aitext', $contextid);
+            } finally {
+                // Always restore the original user, even if an exception occurs.
+                if ($needsswitch) {
+                    \core\session\manager::set_user($originaluser);
+                }
+            }
+
             if ($llmresponse->get_code() !== 200) {
                 throw new moodle_exception(
                     'err_retrievingfeedback',
@@ -937,5 +967,25 @@ class qtype_aitext_question extends question_graded_automatically {
         // We usually should not get here, but if we do, we are falling back to the system context.
         $this->attemptcontextid = context_system::instance()->id;
         return $this->attemptcontextid;
+    }
+
+    /**
+     * Resolve the user record to use for AI manager permission and quota checks.
+     *
+     * The AI manager backend evaluates capabilities and quotas against the current
+     * global $USER. During async/cron grading $USER is the cron user, which would
+     * cause wrong quota accounting and possible capability denials. In that case
+     * we need the attempt owner instead.
+     *
+     * Returns the attempt owner cached during apply_attempt_state(), or falls back
+     * to the current global $USER when no attempt context is available (e.g. when
+     * grading is triggered outside the question engine, such as in question
+     * preview or unit tests).
+     *
+     * @return \stdClass The user record to use for AI requests.
+     */
+    public function resolve_grading_user(): \stdClass {
+        global $USER;
+        return $this->attemptuser ?? $USER;
     }
 }
