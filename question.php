@@ -137,6 +137,9 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
     /** @var int|null Cached context id of the current attempt usage. */
     protected $attemptcontextid = null;
 
+    /** @var \stdClass|null User to impersonate for AI requests during CLI/cron grading. */
+    private ?\stdClass $gradinguser = null;
+
     /**
      * Required by the interface question_automatically_gradable_with_countback.
      *
@@ -166,14 +169,33 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
      * @param string $purpose
      */
     public function perform_request(string $prompt, string $purpose = 'feedback'): string {
+        global $USER;
         if (defined('BEHAT_SITE_RUNNING') || (defined('PHPUNIT_TEST') && PHPUNIT_TEST)) {
             return "AI Feedback";
         }
         $contextid = $this->get_contextid_for_ai_request();
         $backend = get_config('qtype_aitext', 'backend');
         if ($backend == 'local_ai_manager') {
-            $manager = new local_ai_manager\manager($purpose);
-            $llmresponse = (object) $manager->perform_request($prompt, 'qtype_aitext', $contextid);
+            // The ai_manager internally uses global $USER for permission/quota checks.
+            // When grading happens in cron/CLI context, we need to temporarily switch
+            // to the resolved grading user (attempt owner or explicitly set user).
+            $originaluser = $USER;
+            $targetuser = $this->resolve_grading_user();
+            $needsswitch = ($targetuser->id != $USER->id);
+            if ($needsswitch) {
+                \core\session\manager::set_user($targetuser);
+            }
+
+            try {
+                $manager = new \local_ai_manager\manager($purpose);
+                $llmresponse = $manager->perform_request($prompt, 'qtype_aitext', $contextid);
+            } finally {
+                // Always restore the original user, even if an exception occurs.
+                if ($needsswitch) {
+                    \core\session\manager::set_user($originaluser);
+                }
+            }
+
             if ($llmresponse->get_code() !== 200) {
                 throw new moodle_exception(
                     'err_retrievingfeedback',
@@ -242,7 +264,6 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
      * @return void
      */
     public function grade_response(array $response): array {
-
         if ($this->spellcheck) {
             $spellcheckresponse = $this->get_spellchecking($response);
             $this->insert_attempt_step_data('-spellcheckresponse', $spellcheckresponse);
@@ -257,6 +278,17 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
             $this->defaultmark,
             $this->markscheme
         );
+        if (get_config('qtype_aitext', 'backend') === 'local_ai_manager') {
+            $contextid = $this->get_contextid_for_ai_request();
+            $targetuser = $this->resolve_grading_user();
+            $availabilitycheck = $this->check_ai_manager_availability($targetuser, $contextid);
+            if ($availabilitycheck !== true) {
+                $this->insert_attempt_step_data('-comment', $availabilitycheck);
+                $this->insert_attempt_step_data('-commentformat', FORMAT_HTML);
+                return [0.0, question_state::$needsgrading];
+            }
+        }
+        $fullaiprompt = $this->llm_translate($fullaiprompt);
         $feedback = $this->perform_request($fullaiprompt, 'feedback');
         $contentobject = $this->process_feedback($feedback);
 
@@ -837,6 +869,88 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
     }
 
     /**
+     * Get the user who owns the current question attempt.
+     *
+     * This is needed because grading may happen in a different user context (e.g. cron,
+     * admin viewing). The ai_manager checks permissions/quotas against global $USER,
+     * so we need to temporarily switch to the attempt owner.
+     *
+     * @return stdClass|null The user record of the attempt owner, or null if not determinable.
+     */
+    protected function get_attempt_user(): ?\stdClass {
+        global $DB;
+
+        $stepid = 0;
+        if (!empty($this->step) && method_exists($this->step, 'get_id')) {
+            $stepid = (int) $this->step->get_id();
+        }
+
+        if ($stepid <= 0) {
+            return null;
+        }
+
+        $sql = "SELECT u.*
+                  FROM {question_attempt_steps} qas
+                  JOIN {question_attempts} qa ON qa.id = qas.questionattemptid
+                  JOIN {question_usages} qu ON qu.id = qa.questionusageid
+                  JOIN {quiz_attempts} quiza ON quiza.uniqueid = qu.id
+                  JOIN {user} u ON u.id = quiza.userid
+                 WHERE qas.id = :stepid";
+        $user = $DB->get_record_sql($sql, ['stepid' => $stepid]);
+
+        return $user ?: null;
+    }
+
+    /**
+     * Check if the AI manager backend is available for the current user and context.
+     *
+     * Checks both the general availability and the availability of the 'feedback' and 'translate' purposes.
+     *
+     * @param stdClass $user The user to check availability for.
+     * @param int $contextid The context id in which the AI request will be made.
+     * @return true|string True if available, otherwise an error message string.
+     */
+    protected function check_ai_manager_availability(\stdClass $user, int $contextid): true|string {
+        $aiconfig = \local_ai_manager\ai_manager_utils::get_ai_config($user, $contextid, null, ['feedback', 'translate']);
+
+        // Check general availability first.
+        if ($aiconfig['availability']['available'] !== \local_ai_manager\ai_manager_utils::AVAILABILITY_AVAILABLE) {
+            return !empty($aiconfig['availability']['errormessage'])
+                ? $aiconfig['availability']['errormessage']
+                : get_string('err_retrievingfeedback_checkconfig', 'qtype_aitext');
+        }
+
+        // Check purpose-specific availability.
+        $unavailablepurposes = array_filter(
+            $aiconfig['purposes'],
+            fn($p) => $p['available'] !== \local_ai_manager\ai_manager_utils::AVAILABILITY_AVAILABLE
+        );
+
+        if (empty($unavailablepurposes)) {
+            return true;
+        }
+
+        // Find the most relevant error message: feedback first, then translate, then fallback.
+        $feedbackerror = '';
+        $translateerror = '';
+        foreach ($unavailablepurposes as $purposeinfo) {
+            if ($purposeinfo['purpose'] === 'feedback' && !empty($purposeinfo['errormessage'])) {
+                $feedbackerror = $purposeinfo['errormessage'];
+            } else if ($purposeinfo['purpose'] === 'translate' && !empty($purposeinfo['errormessage'])) {
+                $translateerror = $purposeinfo['errormessage'];
+            }
+        }
+
+        if (!empty($feedbackerror)) {
+            return $feedbackerror;
+        }
+        if (!empty($translateerror)) {
+            return $translateerror;
+        }
+        return get_string('err_retrievingfeedback_checkconfig', 'qtype_aitext');
+    }
+
+    /**
      * Resolve the context id which should be used for AI requests.
      *
      * This context is important because it will be used to perform permission checks. So we need the context in which
@@ -884,5 +998,44 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
         // We usually should not get here, but if we do, we are falling back to the system context.
         $this->attemptcontextid = context_system::instance()->id;
         return $this->attemptcontextid;
+    }
+
+    /**
+     * Set the user to be used for AI permission/quota checks during grading.
+     *
+     * This is useful when grading is triggered from CLI/cron where $USER is not the student.
+     * If not set, the attempt owner will be resolved automatically in CLI context.
+     *
+     * @param \stdClass $user The user to use for AI requests.
+     */
+    public function set_grading_user(\stdClass $user): void {
+        $this->gradinguser = $user;
+    }
+
+    /**
+     * Resolve the user that should be used for AI manager requests.
+     *
+     * Priority:
+     * 1. Explicitly set $gradinguser (via set_grading_user)
+     * 2. In CLI context: attempt owner (resolved from DB)
+     * 3. Otherwise: current $USER (normal web request, student is logged in)
+     *
+     * @return \stdClass The user to use for AI requests.
+     */
+    public function resolve_grading_user(): \stdClass {
+        global $USER;
+
+        if ($this->gradinguser !== null) {
+            return $this->gradinguser;
+        }
+
+        if (CLI_SCRIPT) {
+            $attemptuser = $this->get_attempt_user();
+            if ($attemptuser) {
+                return $attemptuser;
+            }
+        }
+
+        return $USER;
     }
 }
