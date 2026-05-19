@@ -35,7 +35,7 @@ require_once($CFG->dirroot . '/question/type/questionbase.php');
  * @copyright  2025 Marcus Green
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class qtype_aitext_question extends question_graded_automatically_with_countback {
+class qtype_aitext_question extends question_graded_automatically {
     /**
      * Plain text or html
      * @var string
@@ -137,17 +137,6 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
     /** @var int|null Cached context id of the current attempt usage. */
     protected $attemptcontextid = null;
 
-    /**
-     * Required by the interface question_automatically_gradable_with_countback.
-     *
-     * @param array $responses
-     * @param array $totaltries
-     * @return number
-     */
-    public function compute_final_grade($responses, $totaltries) {
-
-        return true;
-    }
     /**
      * Re-initialise the state during a quiz (or question use)
      *
