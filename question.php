@@ -157,6 +157,44 @@ class qtype_aitext_question extends question_graded_automatically {
         $this->lastaiprompt = null;
         $this->lastspellcheckresponse = null;
         $this->attemptcontextid = null;
+        // Resolve the usage context from the step.
+        $this->resolve_attempt_context($step);
+    }
+
+    /**
+     * Resolve the attempt (usage) context from a step and cache it.
+     *
+     * Walks step → question_attempt → question_usage → context via DB.
+     * Ignores user contexts because AI permission checks cannot be
+     * evaluated for them (typically means question preview).
+     *
+     * @param question_attempt_step $step A step belonging to this attempt.
+     */
+    private function resolve_attempt_context(question_attempt_step $step): void {
+        global $DB;
+
+        $stepid = 0;
+        if (method_exists($step, 'get_id')) {
+            $stepid = (int) $step->get_id();
+        }
+
+        if ($stepid <= 0) {
+            return;
+        }
+
+        $sql = "SELECT qu.contextid
+              FROM {question_attempt_steps} qas
+              JOIN {question_attempts} qa ON qa.id = qas.questionattemptid
+              JOIN {question_usages} qu ON qu.id = qa.questionusageid
+              JOIN {context} c ON c.id = qu.contextid
+             WHERE qas.id = :stepid AND c.contextlevel <> :contextlevel";
+        $contextid = $DB->get_field_sql($sql, [
+            'stepid' => $stepid,
+            'contextlevel' => CONTEXT_USER,
+        ]);
+        if (!empty($contextid)) {
+            $this->attemptcontextid = (int) $contextid;
+        }
     }
 
     /**
@@ -834,28 +872,8 @@ class qtype_aitext_question extends question_graded_automatically {
             return $this->attemptcontextid;
         }
 
-        $stepid = 0;
-        if (!empty($this->step) && method_exists($this->step, 'get_id')) {
-            $stepid = (int) $this->step->get_id();
-        }
-
-        if ($stepid > 0) {
-            // We are ignoring user contexts here, because the permissions for AI requests cannot be evaluated for user contexts.
-            // User contexts typically mean that a question preview is being done. In this case we use the question's context, so
-            // basically the context of the question bank it belongs to.
-            $sql = "SELECT qu.contextid
-                      FROM {question_attempt_steps} qas
-                      JOIN {question_attempts} qa ON qa.id = qas.questionattemptid
-                      JOIN {question_usages} qu ON qu.id = qa.questionusageid
-                      JOIN {context} c ON c.id = qu.contextid
-                     WHERE qas.id = :stepid AND c.contextlevel <> :contextlevel";
-            $attemptcontextid = $DB->get_field_sql($sql, ['stepid' => $stepid, 'contextlevel' => CONTEXT_USER]);
-            if (!empty($attemptcontextid)) {
-                $this->attemptcontextid = (int) $attemptcontextid;
-                return $this->attemptcontextid;
-            }
-        }
-
+        // The question bank context ($this->contextid) is always available as a fallback.
+        // It is set by the question engine when loading the question definition.
         if (!empty($this->contextid)) {
             $this->attemptcontextid = $this->contextid;
             return $this->attemptcontextid;
