@@ -114,13 +114,6 @@ class qtype_aitext_question extends question_graded_automatically {
      */
     public $markscheme;
 
-    /**
-     * Question attempt step
-     *
-     * @var mixed
-     */
-    public $step;
-
     /** @var int */
     public $defaultmark;
 
@@ -137,6 +130,22 @@ class qtype_aitext_question extends question_graded_automatically {
     /** @var int|null Cached context id of the current attempt usage. */
     protected $attemptcontextid = null;
 
+    /** @var string|null Cached AI comment from the last grade_response() call. */
+    public $lastaicomment = null;
+
+    /** @var string|null Cached AI prompt from the last grade_response() call. */
+    public $lastaiprompt = null;
+
+    /** @var string|null Cached spellcheck response from the last grade_response() call. */
+    public $lastspellcheckresponse = null;
+
+    public function make_behaviour(question_attempt $qa, $preferredbehaviour) {
+        if ($preferredbehaviour === 'deferredfeedback' || $preferredbehaviour === 'deferredcbm') {
+            return question_engine::make_behaviour('deferred_adapted_for_aitext', $qa, $preferredbehaviour);
+        }
+        return question_engine::make_archetypal_behaviour($preferredbehaviour, $qa);
+    }
+
     /**
      * Re-initialise the state during a quiz (or question use)
      *
@@ -144,9 +153,12 @@ class qtype_aitext_question extends question_graded_automatically {
      * @return void
      */
     public function apply_attempt_state(question_attempt_step $step) {
-        $this->step = $step;
+        $this->lastaicomment = null;
+        $this->lastaiprompt = null;
+        $this->lastspellcheckresponse = null;
         $this->attemptcontextid = null;
     }
+
     /**
      * Call the llm using either the 4.5 core api or the backend provided by
      * local_ai_manager (mebis) or tool_aimanager
@@ -231,15 +243,19 @@ class qtype_aitext_question extends question_graded_automatically {
      * @return void
      */
     public function grade_response(array $response): array {
+        // Clear from any previous call.
+        $this->lastaicomment = null;
+        $this->lastaiprompt = null;
+        $this->lastspellcheckresponse = null;
+
+        if (!$this->is_complete_response($response)) {
+            return [0, question_state::$needsgrading];
+        }
 
         if ($this->spellcheck) {
-            $spellcheckresponse = $this->get_spellchecking($response);
-            $this->insert_attempt_step_data('-spellcheckresponse', $spellcheckresponse);
+            $this->lastspellcheckresponse = $this->get_spellchecking($response);
         }
-        if (!$this->is_complete_response($response)) {
-            $grade = [0 => 0, question_state::$needsgrading];
-            return $grade;
-        }
+
         $fullaiprompt = $this->build_full_ai_prompt(
             $response['answer'],
             $this->aiprompt,
@@ -248,26 +264,18 @@ class qtype_aitext_question extends question_graded_automatically {
         );
         $feedback = $this->perform_request($fullaiprompt, 'feedback');
         $contentobject = $this->process_feedback($feedback);
+        $this->lastaicomment = $contentobject->feedback;
 
         // If there are no marks, write the feedback and set to needs grading .
         if (is_null($contentobject->marks)) {
-            $grade = [0.0, question_state::$needsgrading];
-        } else {
-            $fraction = 0.0;
-            if (is_numeric($contentobject->marks) && $this->defaultmark > 0) {
-                $fraction = (float) $contentobject->marks / $this->defaultmark;
-            }
-            $grade = [$fraction, question_state::graded_state_for_fraction($fraction)];
+            return [0.0, question_state::$needsgrading];
         }
+        $fraction = 0.0;
+        if (is_numeric($contentobject->marks) && $this->defaultmark > 0) {
+            $fraction = (float) $contentobject->marks / $this->defaultmark;
+        }
+        return [$fraction, question_state::graded_state_for_fraction($fraction)];
 
-         // The -aicontent data is used in question preview. Only needs to happen in preview.
-        $this->insert_attempt_step_data('-aiprompt', $fullaiprompt);
-        $this->insert_attempt_step_data('-aicontent', $contentobject->feedback);
-
-        $this->insert_attempt_step_data('-comment', $contentobject->feedback);
-        $this->insert_attempt_step_data('-commentformat', FORMAT_HTML);
-
-        return $grade;
     }
 
     /**
@@ -530,23 +538,6 @@ class qtype_aitext_question extends question_graded_automatically {
             $cache->set(current_language() . '_' . $text, $translation);
         }
         return $translation;
-    }
-
-    /**
-     * Fake manual grading
-     *
-     * @param string $name
-     * @param string $value
-     * @return void
-     */
-    protected function insert_attempt_step_data(string $name, string $value): void {
-        global $DB;
-        $data = [
-            'attemptstepid' => $this->step->get_id(),
-            'name' => $name,
-            'value' => $value,
-        ];
-        $DB->insert_record('question_attempt_step_data', $data);
     }
 
     /**
