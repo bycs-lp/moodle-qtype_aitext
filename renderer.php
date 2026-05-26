@@ -166,15 +166,14 @@ class qtype_aitext_renderer extends qtype_renderer {
      */
     public function feedback(question_attempt $qa, question_display_options $options) {
         // Get data written in the question.php grade_response method.
-        // This probably should be retrieved by an API call.
-        $comment = $qa->get_current_manual_comment();
+        $comment = $qa->get_last_behaviour_var('_comment');
 
         if ($this->page->pagetype === 'question-bank-previewquestion-preview') {
             // Ensure $comment is an array and has content.
-            if (is_array($comment) && !empty($comment[0])) {
+            if (!empty($comment)) {
                 $this->page->requires->js_call_amd('qtype_aitext/showprompt', 'init', []);
 
-                $prompt = $qa->get_last_qt_var('-aiprompt');
+                $prompt = $qa->get_last_behaviour_var('_aiprompt');
 
                 // Clean the prompt so no script/JS can be injected, while keeping safe HTML.
                 $prompt = format_text($prompt, FORMAT_HTML, [
@@ -187,12 +186,12 @@ class qtype_aitext_renderer extends qtype_renderer {
                 $showprompt .= '<div id="fullprompt" class="hidden">' . $prompt . '</div>';
 
                 // Store the modified feedback in a variable.
-                $feedback = $comment[0] . $showprompt;
+                $feedback = $comment . $showprompt;
                 return $feedback;
             }
 
             // Return the comment if it exists, otherwise empty string.
-            return (is_array($comment) && isset($comment[0])) ? $comment[0] : '';
+            return $comment ?? '';
         }
 
         return '';

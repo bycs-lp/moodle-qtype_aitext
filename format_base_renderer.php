@@ -69,7 +69,7 @@ abstract class qtype_aitext_format_renderer_base extends plugin_renderer_base {
                 'init',
                 ['#' . $readonlyareaid, '#' . $spellcheckeditbuttonid]
             );
-            $stepspellcheck = $qa->get_last_step_with_qt_var('-spellcheckresponse');
+            $stepspellcheck = $qa->get_last_step_with_behaviour_var('_spellcheckresponse');
             $stepanswer = $qa->get_last_step_with_qt_var('answer');
         }
         // Lib to display the spellcheck diff.

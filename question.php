@@ -300,6 +300,7 @@ class qtype_aitext_question extends question_graded_automatically {
             $this->defaultmark,
             $this->markscheme
         );
+        $this->lastaiprompt = $fullaiprompt;
         $feedback = $this->perform_request($fullaiprompt, 'feedback');
         $contentobject = $this->process_feedback($feedback);
         $this->lastaicomment = $contentobject->feedback;
