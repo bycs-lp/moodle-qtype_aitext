@@ -143,6 +143,9 @@ class qtype_aitext_question extends question_graded_automatically {
         if ($preferredbehaviour === 'deferredfeedback' || $preferredbehaviour === 'deferredcbm') {
             return question_engine::make_behaviour('deferred_adapted_for_aitext', $qa, $preferredbehaviour);
         }
+        if ($preferredbehaviour === 'immediatefeedback' || $preferredbehaviour === 'immediatecbm') {
+            return question_engine::make_behaviour('immediatefbk_adapted_for_aitext', $qa, $preferredbehaviour);
+        }
         return question_engine::make_archetypal_behaviour($preferredbehaviour, $qa);
     }
 
