@@ -69,7 +69,9 @@ abstract class qtype_aitext_format_renderer_base extends plugin_renderer_base {
                 'init',
                 ['#' . $readonlyareaid, '#' . $spellcheckeditbuttonid]
             );
-            $stepspellcheck = $qa->get_last_step_with_behaviour_var('_spellcheckresponse');
+            // Get the edited version from the teacher if any, otherwise the ai generated one.
+            $spellcheck = $qa->get_last_behaviour_var('spellcheckedit')
+                ?? $qa->get_last_behaviour_var('_spellcheckresponse');
             $stepanswer = $qa->get_last_step_with_qt_var('answer');
         }
         // Lib to display the spellcheck diff.
@@ -87,8 +89,8 @@ abstract class qtype_aitext_format_renderer_base extends plugin_renderer_base {
         ];
 
         if ($qa->get_question()->spellcheck) {
-            $divoptions['data-spellcheck'] = $this->prepare_response('-spellcheckresponse', $qa, $stepspellcheck, $context);
-            $divoptions['data-spellcheckattemptstepid'] = $stepspellcheck->get_id();
+            $divoptions['data-spellcheck'] = $this->prepare_response_spellcheck($spellcheck);
+            $divoptions['data-questionattemptid'] = $qa->get_database_id();
             $divoptions['data-spellcheckattemptstepanswerid'] = $stepanswer->get_id();
             $divoptions['data-answer'] = $this->prepare_response($name, $qa, $step, $context);
         }

@@ -20,6 +20,7 @@ use context;
 use context_module;
 use core_form\dynamic_form;
 use moodle_url;
+use question_engine;
 
 /**
  * From for editing a card.
@@ -40,11 +41,8 @@ class edit_spellcheck extends dynamic_form {
 
         $mform = &$this->_form;
 
-        $mform->addElement('hidden', 'attemptstepid');
-        $mform->setType('attemptstepid', PARAM_INT);
-
-        $mform->addElement('hidden', 'answerstepid');
-        $mform->setType('answerstepid', PARAM_INT);
+        $mform->addElement('hidden', 'questionattemptid');
+        $mform->setType('questionattemptid', PARAM_INT);
 
         $mform->addElement('static', 'student_answer', get_string('spellcheck_student_anser_desc', 'qtype_aitext'));
         $mform->setType('student_answer', PARAM_RAW);
@@ -54,7 +52,7 @@ class edit_spellcheck extends dynamic_form {
             'spellcheck_editor',
             get_string('spellcheck_editor_desc', 'qtype_aitext'),
             null,
-            ['maxfiles' => -1]
+            ['maxfiles' => 0]
         );
         $mform->setType('spellcheck_editor', PARAM_RAW);
     }
@@ -65,8 +63,8 @@ class edit_spellcheck extends dynamic_form {
      * @return context
      */
     protected function get_context_for_dynamic_submission(): context {
-        $attemptstepid = $this->_ajaxformdata['attemptstepid'];
-        return $this->get_context_from_attemptstepid($attemptstepid);
+        $questionattemptid = $this->_ajaxformdata['questionattemptid'];
+        return $this->get_context_from_questionattemptid($questionattemptid);
     }
 
     /**
@@ -97,7 +95,11 @@ class edit_spellcheck extends dynamic_form {
     }
 
     /**
-     * Process the form submission, used if form was submitted via AJAX
+     * Process the form submission, used if form was submitted via AJAX.
+     * Submission will - depending on the question engine - add a new manual grading step
+     * that does not change the grade and comment but saves a behaviour variable 'spellcheckedit'
+     * with the teacher-edited spellcheck content.
+     * This will then be used in the question renderer to show the teacher-edited spellcheck instead of the AI-generated one.
      *
      * @return object Returns the updated object.
      */
@@ -105,17 +107,17 @@ class edit_spellcheck extends dynamic_form {
         global $DB;
         $formdata = $this->get_data();
 
-        $conditions = [
-            'attemptstepid' => $formdata->attemptstepid,
-            'name' => '-spellcheckresponse',
-        ];
+        $attempt = $DB->get_record('question_attempts', ['id' => $formdata->questionattemptid], '*', MUST_EXIST);
+        $quba = question_engine::load_questions_usage_by_activity($attempt->questionusageid);
 
-        $record = $DB->get_record('question_attempt_step_data', $conditions, '*', MUST_EXIST);
+        $quba->process_action(
+            $attempt->slot,
+            ['-spellcheckedit' => $formdata->spellcheck_editor['text']]
+        );
 
-        $record->value = $formdata->spellcheck_editor['text'];
-        $DB->update_record('question_attempt_step_data', $record);
+        question_engine::save_questions_usage_by_activity($quba);
 
-        return $record;
+        return (object)['questionattemptid' => $formdata->questionattemptid];
     }
 
     /**
@@ -124,19 +126,22 @@ class edit_spellcheck extends dynamic_form {
     public function set_data_for_dynamic_submission(): void {
         global $DB;
 
-        $conditions = ['attemptstepid' => $this->optional_param('attemptstepid', 0, PARAM_INT), 'name' => '-spellcheckresponse'];
-        $spellcheckrecord = $DB->get_record('question_attempt_step_data', $conditions);
+        $questionattemptid = $this->optional_param('questionattemptid', 0, PARAM_INT);
+        $attempt = $DB->get_record('question_attempts', ['id' => $questionattemptid], '*', MUST_EXIST);
+        $quba = question_engine::load_questions_usage_by_activity($attempt->questionusageid);
+        $qa = $quba->get_question_attempt($attempt->slot);
 
-        $conditions = ['attemptstepid' => $this->optional_param('answerstepid', 0, PARAM_INT), 'name' => 'answer'];
-        $answerrecord = $DB->get_record('question_attempt_step_data', $conditions);
+        // Get the teacher-edited spellcheck if present, otherwise fall back to AI's version.
+        $spellcheckvalue = $qa->get_last_behaviour_var('spellcheckedit')
+            ?? $qa->get_last_behaviour_var('_spellcheckresponse', '');
 
-        $draftitemid = file_get_submitted_draft_itemid('attachments');
+        // Get the student's answer directly from the question attempt.
+        $studentanswer = $qa->get_last_qt_var('answer', '');
 
         $this->set_data((object)[
-            'test' => $spellcheckrecord->value,
-            'spellcheck_editor' => ['text' => $spellcheckrecord->value, 'format' => FORMAT_HTML, 'itemid' => $draftitemid],
-            'attemptstepid' => $this->optional_param('attemptstepid', 0, PARAM_INT),
-            'student_answer' => $answerrecord->value,
+            'spellcheck_editor' => ['text' => $spellcheckvalue, 'format' => FORMAT_HTML],
+            'questionattemptid' => $questionattemptid,
+            'student_answer' => $studentanswer,
         ]);
     }
 
@@ -154,22 +159,21 @@ class edit_spellcheck extends dynamic_form {
     }
 
     /**
-     * Retrieves the context related to the given attemptstepid.
+     * Retrieves the context related to the given questionattemptid.
      *
      * First checks if a context has already been retrieved, if not, it retrieves
-     * the question usage context from the attempt step and the question attempt
+     * the question usage context from the question attempt
      * and finally creates a new context based on the usage context ID.
      *
-     * @param int $attemptstepid The ID of the attempt step.
+     * @param int $questionattemptid The ID of the question attempt.
      * @return context The context object.
      */
-    private function get_context_from_attemptstepid(int $attemptstepid) {
+    private function get_context_from_questionattemptid(int $questionattemptid) {
         global $DB;
         if (!is_null($this->context)) {
             return $this->context;
         }
-        $attemptstep = $DB->get_record('question_attempt_steps', ['id' => $attemptstepid]);
-        $attempt = $DB->get_record('question_attempts', ['id' => $attemptstep->questionattemptid]);
+        $attempt = $DB->get_record('question_attempts', ['id' => $questionattemptid]);
         $questionusage = $DB->get_record('question_usages', ['id' => $attempt->questionusageid]);
         $this->context = context::instance_by_id($questionusage->contextid);
         return $this->context;
