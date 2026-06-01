@@ -97,4 +97,20 @@ class qtype_aitext_format_plain_renderer extends qtype_aitext_format_renderer_ba
 
         return format_text($step->get_qt_var($name), $step->get_qt_var($name . 'format'), ['para' => false]);
     }
+
+    /**
+     * Prepare a read only version of the spellcheck of the response
+     * to display the differences between the original response and the spellchecked version.
+     * @param string $spellcheck the current step.
+     * @return string the spellcheck response prepared for display.
+     */
+    protected function prepare_response_spellcheck(string $spellcheck) {
+        $formatoptions = new stdClass();
+        $formatoptions->para = false;
+        return format_text(
+            $spellcheck,
+            FORMAT_PLAIN,
+            $formatoptions
+        );
+    }
 }
