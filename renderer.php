@@ -264,7 +264,7 @@ class qtype_aitext_renderer extends qtype_renderer {
         $labelbyid = $qa->get_qt_field_name('attachments') . '_label';
 
         $fileslabel = $options->add_question_identifier_to_label(get_string('answerfiles', 'qtype_aitext'));
-        $output = html_writer::tag('h4', $fileslabel, ['id' => $labelbyid, 'class' => 'sr-only']);
+        $output = html_writer::tag('h4', $fileslabel, ['id' => $labelbyid, 'class' => 'visually-hidden']);
         $output .= html_writer::tag('ul', implode($filelist), [
             'aria-labelledby' => $labelbyid,
             'class' => 'list-unstyled m-0',
@@ -323,7 +323,7 @@ class qtype_aitext_renderer extends qtype_renderer {
 
         $output = html_writer::start_tag('fieldset');
         $fileslabel = $options->add_question_identifier_to_label(get_string('answerfiles', 'qtype_aitext'));
-        $output .= html_writer::tag('legend', $fileslabel, ['class' => 'sr-only']);
+        $output .= html_writer::tag('legend', $fileslabel, ['class' => 'visually-hidden']);
         $output .= $filesrenderer->render($fm);
         $output .= html_writer::empty_tag('input', [
             'type' => 'hidden',
