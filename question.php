@@ -139,14 +139,52 @@ class qtype_aitext_question extends question_graded_automatically {
     /** @var string|null Cached spellcheck response from the last grade_response() call. */
     public $lastspellcheckresponse = null;
 
+    /**
+     * Choose the question behaviour to use for this question attempt.
+     *
+     * Routes the requested preferred behaviour to an adapted variant that
+     * persists AI grading results (comment, prompt, spellcheck) as cached
+     * behaviour variables on the grading step.
+     *
+     * Immediate-style behaviours (immediatefeedback, immediatecbm, adaptive,
+     * adaptivenopenalty, interactive, interactivecountback) are routed to
+     * qbehaviour_immediate_for_aitext, which grades on every submit.
+     *
+     * Manualgraded is kept as-is via the core archetypal behaviour: no AI
+     * grading occurs in that mode, so no adapter is needed. Note that
+     * manualgraded is disabled by default in the quiz preferred-behaviour
+     * dropdown but may be re-enabled by an admin.
+     *
+     * All remaining behaviours, including deferredfeedback and deferredcbm,
+     * are routed to qbehaviour_deferred_for_aitext, which grades only on finish.
+     *
+     * @param question_attempt $qa the question attempt being constructed.
+     * @param string $preferredbehaviour the preferred behaviour name from the quiz settings.
+     * @return question_behaviour the behaviour instance to use.
+     */
     public function make_behaviour(question_attempt $qa, $preferredbehaviour) {
-        if ($preferredbehaviour === 'deferredfeedback' || $preferredbehaviour === 'deferredcbm') {
-            return question_engine::make_behaviour('deferred_for_aitext', $qa, $preferredbehaviour);
-        }
-        if ($preferredbehaviour === 'immediatefeedback' || $preferredbehaviour === 'immediatecbm') {
+
+        // Immediate-style: grade on each submit, multiple tries possible.
+        // adaptive, adaptivenopenalty, interactive, interactivecountback all call
+        // grade_response() per submit, just like immediatefeedback/immediatecbm.
+        if (in_array($preferredbehaviour, [
+            'immediatefeedback',
+            'immediatecbm',
+            'adaptive',
+            'adaptivenopenalty',
+            'interactive',
+            'interactivecountback',
+        ], true)) {
             return question_engine::make_behaviour('immediate_for_aitext', $qa, $preferredbehaviour);
         }
-        return question_engine::make_archetypal_behaviour($preferredbehaviour, $qa);
+
+        // Manual grading: no AI grading occurs, use core behaviour as-is.
+        if ($preferredbehaviour === 'manualgraded') {
+            return question_engine::make_archetypal_behaviour($preferredbehaviour, $qa);
+        }
+
+        // Everything else (deferredfeedback, deferredcbm, anything unknown) → deferred adapter.
+        return question_engine::make_behaviour('deferred_for_aitext', $qa, $preferredbehaviour);
     }
 
     /**
