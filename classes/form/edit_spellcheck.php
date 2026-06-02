@@ -112,7 +112,10 @@ class edit_spellcheck extends dynamic_form {
 
         $quba->process_action(
             $attempt->slot,
-            ['-spellcheckedit' => $formdata->spellcheck_editor['text']]
+            [
+                '-spellcheckedit' => $formdata->spellcheck_editor['text'],
+                '-spellcheckeditformat' => $formdata->spellcheck_editor['format'],
+            ]
         );
 
         question_engine::save_questions_usage_by_activity($quba);
@@ -132,14 +135,20 @@ class edit_spellcheck extends dynamic_form {
         $qa = $quba->get_question_attempt($attempt->slot);
 
         // Get the teacher-edited spellcheck if present, otherwise fall back to AI's version.
-        $spellcheckvalue = $qa->get_last_behaviour_var('spellcheckedit')
-            ?? $qa->get_last_behaviour_var('_spellcheckresponse', '');
+        $teacheredit = $qa->get_last_behaviour_var('spellcheckedit');
+        if ($teacheredit !== null) {
+            $spellcheckvalue = $teacheredit;
+            $spellcheckformat = (int) ($qa->get_last_behaviour_var('spellcheckeditformat') ?? FORMAT_HTML);
+        } else {
+            $spellcheckvalue = $qa->get_last_behaviour_var('_spellcheckresponse') ?? '';
+            $spellcheckformat = editors_get_preferred_format();
+        }
 
         // Get the student's answer directly from the question attempt.
         $studentanswer = $qa->get_last_qt_var('answer', '');
 
         $this->set_data((object)[
-            'spellcheck_editor' => ['text' => $spellcheckvalue, 'format' => FORMAT_HTML],
+            'spellcheck_editor' => ['text' => $spellcheckvalue, 'format' => $spellcheckformat],
             'questionattemptid' => $questionattemptid,
             'student_answer' => $studentanswer,
         ]);
