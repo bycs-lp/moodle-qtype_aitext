@@ -331,8 +331,14 @@ class qtype_aitext_question extends question_graded_automatically {
             return [0, question_state::$needsgrading];
         }
 
+        // If spellcheck is enabled, perform spellchecking and cache the response. Spellcheck failure is non-fatal.
         if ($this->spellcheck) {
-            $this->lastspellcheckresponse = $this->get_spellchecking($response);
+            try {
+                $this->lastspellcheckresponse = $this->get_spellchecking($response);
+            } catch (\moodle_exception $e) {
+                // Spellcheck failure is non-fatal — keep going without it.
+                $this->lastspellcheckresponse = null;
+            }
         }
 
         $fullaiprompt = $this->build_full_ai_prompt(
@@ -341,8 +347,15 @@ class qtype_aitext_question extends question_graded_automatically {
             $this->defaultmark,
             $this->markscheme
         );
+
         $this->lastaiprompt = $fullaiprompt;
-        $feedback = $this->perform_request($fullaiprompt, 'feedback');
+        try {
+            $feedback = $this->perform_request($fullaiprompt, 'feedback');
+        } catch (\moodle_exception $e) {
+            // AI unavailable (quota, capability, tenant, etc.) — defer to manual grading.
+            debugging('AI grading unavailable, deferring to manual grading: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            return [0.0, question_state::$needsgrading];
+        }
         $contentobject = $this->process_feedback($feedback);
         $this->lastaicomment = $contentobject->feedback;
 
