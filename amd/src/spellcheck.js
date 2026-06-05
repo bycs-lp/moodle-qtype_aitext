@@ -89,13 +89,11 @@ export const renderDiff = (readonlyareaselector) => {
  */
 export const showModalForm = async(readonlyareaselector) => {
     const questionattemptid = document.querySelector(readonlyareaselector).dataset.questionattemptid;
-    const answerstepid = document.querySelector(readonlyareaselector).dataset.spellcheckattemptstepanswerid;
     const title = await getString('spellcheckedit', 'qtype_aitext');
     const modalForm = new ModalForm({
         formClass: "qtype_aitext\\form\\edit_spellcheck",
         args: {
             questionattemptid,
-            answerstepid
         },
         modalConfig: {title},
     });
