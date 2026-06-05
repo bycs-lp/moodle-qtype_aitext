@@ -79,8 +79,10 @@ abstract class qtype_aitext_format_renderer_base extends plugin_renderer_base {
         // That seems to give results that look OK.
 
         $isspellcheckused = $question->spellcheck;
+        $spellcheckedresponse = $this->prepare_response_spellcheck($qa);
 
-        if ($isspellcheckused) {
+        // Added guard for the case that the ai did not provide any spellchecking, needs improvement.
+        if ($isspellcheckused && !empty($spellcheckedresponse)) {
             // Lib to display the spellcheck diff.
             $this->page->requires->js_call_amd('qtype_aitext/diff');
             $this->page->requires->js_call_amd(
@@ -89,7 +91,7 @@ abstract class qtype_aitext_format_renderer_base extends plugin_renderer_base {
                 ['#' . $readonlyareaid, '#' . $spellcheckeditbuttonid]
             );
 
-            $divoptions['data-spellcheck'] = $this->prepare_response_spellcheck($qa);
+            $divoptions['data-spellcheck'] = $spellcheckedresponse;
             $divoptions['data-questionattemptid'] = $qa->get_database_id();
             $divoptions['data-answer'] = $response;
         }

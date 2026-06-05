@@ -354,6 +354,7 @@ class qtype_aitext_question extends question_graded_automatically {
         } catch (\moodle_exception $e) {
             // AI unavailable (quota, capability, tenant, etc.) — defer to manual grading.
             debugging('AI grading unavailable, deferring to manual grading: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            $this->lastaicomment = get_string('err_nofeedback', 'qtype_aitext');
             return [0.0, question_state::$needsgrading];
         }
         $contentobject = $this->process_feedback($feedback);
