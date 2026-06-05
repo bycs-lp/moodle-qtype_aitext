@@ -139,8 +139,8 @@ class qtype_aitext_question extends question_graded_automatically {
     /** @var string|null Cached spellcheck response from the last grade_response() call. */
     public $lastspellcheckresponse = null;
 
-    /** @var \stdClass|null User to impersonate for AI requests during CLI/cron grading. */
-    private ?\stdClass $gradinguser = null;
+    /** @var \stdClass|null User of the quiz attempt we are processing, might be relevant to for AI requests during CLI/cron grading. */
+    private ?\stdClass $quizattemptuser = null;
 
     /**
      * Choose the question behaviour to use for this question attempt.
@@ -227,26 +227,25 @@ class qtype_aitext_question extends question_graded_automatically {
             return;
         }
 
-        $sql = "SELECT qu.contextid, quiza.userid
+        $userid = $step->get_user_id();
+
+        $sql = "SELECT qu.contextid
               FROM {question_attempt_steps} qas
               JOIN {question_attempts} qa ON qa.id = qas.questionattemptid
               JOIN {question_usages} qu ON qu.id = qa.questionusageid
               JOIN {context} c ON c.id = qu.contextid
-         LEFT JOIN {quiz_attempts} quiza ON quiza.uniqueid = qu.id
              WHERE qas.id = :stepid AND c.contextlevel <> :contextlevel";
-        $row = $DB->get_record_sql($sql, [
+        $contextid = $DB->get_field_sql($sql, [
             'stepid' => $stepid,
             'contextlevel' => CONTEXT_USER,
         ]);
-        if ($row) {
-            if (!empty($row->contextid)) {
-                $this->attemptcontextid = (int) $row->contextid;
-            }
-            if (!empty($row->userid)) {
-                $this->gradinguser = $DB->get_record('user', ['id' => $row->userid]) ?: null;
-            }
-        }
 
+        if (!empty($contextid)) {
+            $this->attemptcontextid = (int) $contextid;
+        }
+        if (!empty($userid)) {
+            $this->quizattemptuser = $DB->get_record('user', ['id' => $userid]) ?: null;
+        }
     }
 
     /**
@@ -268,10 +267,9 @@ class qtype_aitext_question extends question_graded_automatically {
             // When grading happens in cron/CLI context, we need to temporarily switch
             // to the resolved grading user (attempt owner or explicitly set user).
             $originaluser = $USER;
-            $targetuser = $this->resolve_grading_user();
-            $needsswitch = ($targetuser->id != $USER->id);
-            if ($needsswitch) {
-                \core\session\manager::set_user($targetuser);
+            $newgradinguser = $this->resolve_grading_user();
+            if ($newgradinguser[0]) {
+                \core\session\manager::set_user($newgradinguser[1]);
             }
 
             try {
@@ -975,17 +973,26 @@ class qtype_aitext_question extends question_graded_automatically {
      * The AI manager backend evaluates capabilities and quotas against the current
      * global $USER. During async/cron grading $USER is the cron user, which would
      * cause wrong quota accounting and possible capability denials. In that case
-     * we need the attempt owner instead.
+     * we need the attempt owner instead, which is the user submitting the answer.
      *
-     * Returns the attempt owner cached during apply_attempt_state(), or falls back
-     * to the current global $USER when no attempt context is available (e.g. when
-     * grading is triggered outside the question engine, such as in question
-     * preview or unit tests).
+     * During regrading outside a task, $USER is normally the teacher triggering the regrading, that should not be changed.
      *
-     * @return \stdClass The user record to use for AI requests.
+     * If grading per cli script or per cron, switch when possible to the user owning the attempt.
+     * In the current state: when an admin user does a regrading per cron but they are correctly triggering
+     * the regrade as teacher, the student owning the attempt will do the request for the regrading
+     * instead.
+     *
+     * @return array{isdifferent: bool, user: \stdClass} The user record to use for AI requests.
      */
-    public function resolve_grading_user(): \stdClass {
+    public function resolve_grading_user(): array {
         global $USER;
-        return $this->attemptuser ?? $USER;
+        $user = $USER;
+        if ((defined('CLI_SCRIPT') && CLI_SCRIPT) || (`\core\cron::is_cron_running()` && is_siteadmin($USER))) {
+            $user = $this->attemptuser ?: $USER;
+        }
+        return [
+            'isdifferent' => $user->id !== (int) $USER->id,
+            'user' => $user,
+        ];
     }
 }
