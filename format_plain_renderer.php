@@ -70,7 +70,7 @@ class qtype_aitext_format_plain_renderer extends qtype_aitext_format_renderer_ba
         $id = $inputname . '_id';
 
         $responselabel = $this->displayoptions->add_question_identifier_to_label(get_string('answertext', 'qtype_aitext'));
-        $output = html_writer::tag('label', $responselabel, ['class' => 'sr-only', 'for' => $id]);
+        $output = html_writer::tag('label', $responselabel, ['class' => 'visually-hidden', 'for' => $id]);
         $output .= $this->textarea($step->get_qt_var($name), $lines, ['name' => $inputname, 'id' => $id]);
         $output .= html_writer::empty_tag('input', ['type' => 'hidden', 'name' => $inputname . 'format', 'value' => FORMAT_PLAIN]);
         return $output;

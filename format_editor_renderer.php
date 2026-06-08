@@ -80,7 +80,7 @@ class qtype_aitext_format_editor_renderer extends qtype_aitext_format_renderer_b
 
         $responselabel = $this->displayoptions->add_question_identifier_to_label(get_string('answertext', 'qtype_aitext'));
         $output = html_writer::tag('label', $responselabel, [
-            'class' => 'sr-only',
+            'class' => 'visually-hidden',
             'for' => $id,
         ]);
         $output .= html_writer::start_tag('div', ['class' =>

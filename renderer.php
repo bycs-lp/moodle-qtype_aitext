@@ -166,27 +166,26 @@ class qtype_aitext_renderer extends qtype_renderer {
      */
     public function feedback(question_attempt $qa, question_display_options $options) {
         // Get data written in the question.php grade_response method.
-        // This probably should be retrieved by an API call.
-        $comment = $qa->get_current_manual_comment();
+        $comment = $qa->get_last_behaviour_var('_comment');
 
         if ($this->page->pagetype === 'question-bank-previewquestion-preview') {
             // Ensure $comment is an array and has content.
-            if (is_array($comment) && !empty($comment[0])) {
+            if (!empty($comment)) {
                 $this->page->requires->js_call_amd('qtype_aitext/showprompt', 'init', []);
 
-                $prompt = $qa->get_last_qt_var('-aiprompt');
+                $prompt = $qa->get_last_behaviour_var('_aiprompt');
 
                 $showprompt  = '<br /><button id="showprompt" class="rounded">';
                 $showprompt .= get_string('showprompt', 'qtype_aitext') . '</button>';
                 $showprompt .= '<div id="fullprompt" class="hidden">' . $prompt . '</div>';
 
                 // Store the modified feedback in a variable.
-                $feedback = $comment[0] . $showprompt;
+                $feedback = $comment . $showprompt;
                 return $feedback;
             }
 
             // Return the comment if it exists, otherwise empty string.
-            return (is_array($comment) && isset($comment[0])) ? $comment[0] : '';
+            return $comment ?? '';
         }
 
         return '';
@@ -259,7 +258,7 @@ class qtype_aitext_renderer extends qtype_renderer {
         $labelbyid = $qa->get_qt_field_name('attachments') . '_label';
 
         $fileslabel = $options->add_question_identifier_to_label(get_string('answerfiles', 'qtype_aitext'));
-        $output = html_writer::tag('h4', $fileslabel, ['id' => $labelbyid, 'class' => 'sr-only']);
+        $output = html_writer::tag('h4', $fileslabel, ['id' => $labelbyid, 'class' => 'visually-hidden']);
         $output .= html_writer::tag('ul', implode($filelist), [
             'aria-labelledby' => $labelbyid,
             'class' => 'list-unstyled m-0',
@@ -318,7 +317,7 @@ class qtype_aitext_renderer extends qtype_renderer {
 
         $output = html_writer::start_tag('fieldset');
         $fileslabel = $options->add_question_identifier_to_label(get_string('answerfiles', 'qtype_aitext'));
-        $output .= html_writer::tag('legend', $fileslabel, ['class' => 'sr-only']);
+        $output .= html_writer::tag('legend', $fileslabel, ['class' => 'visually-hidden']);
         $output .= $filesrenderer->render($fm);
         $output .= html_writer::empty_tag('input', [
             'type' => 'hidden',
