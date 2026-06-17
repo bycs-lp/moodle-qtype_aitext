@@ -47,14 +47,20 @@ class edit_spellcheck extends dynamic_form {
         $mform->addElement('static', 'student_answer', get_string('spellcheck_student_anser_desc', 'qtype_aitext'));
         $mform->setType('student_answer', PARAM_RAW);
 
+        $editoroptions = [
+            'context' => $this->context,
+            'maxfiles' => 0,
+            'enable_filemanagement' => false,
+        ];
         $mform->addElement(
             'editor',
             'spellcheck_editor',
             get_string('spellcheck_editor_desc', 'qtype_aitext'),
             null,
-            ['maxfiles' => 0]
+            $editoroptions,
         );
-        $mform->setType('spellcheck_editor', PARAM_RAW);
+        $mform->setType('spellcheck_editor', PARAM_TEXT);
+        $mform->setDefault('spellcheck_editor', ['text' => '', 'format' => FORMAT_PLAIN]);
     }
 
     /**
@@ -114,7 +120,6 @@ class edit_spellcheck extends dynamic_form {
             $attempt->slot,
             [
                 '-spellcheckedit' => $formdata->spellcheck_editor['text'],
-                '-spellcheckeditformat' => $formdata->spellcheck_editor['format'],
             ]
         );
 
@@ -138,17 +143,15 @@ class edit_spellcheck extends dynamic_form {
         $teacheredit = $qa->get_last_behaviour_var('spellcheckedit');
         if ($teacheredit !== null) {
             $spellcheckvalue = $teacheredit;
-            $spellcheckformat = (int) ($qa->get_last_behaviour_var('spellcheckeditformat') ?? FORMAT_HTML);
         } else {
             $spellcheckvalue = $qa->get_last_behaviour_var('_spellcheckresponse') ?? '';
-            $spellcheckformat = editors_get_preferred_format();
         }
 
         // Get the student's answer directly from the question attempt.
         $studentanswer = $qa->get_last_qt_var('answer', '');
 
         $this->set_data((object)[
-            'spellcheck_editor' => ['text' => $spellcheckvalue, 'format' => $spellcheckformat],
+            'spellcheck_editor' => ['text' => $spellcheckvalue, 'format' => FORMAT_PLAIN],
             'questionattemptid' => $questionattemptid,
             'student_answer' => $studentanswer,
         ]);
