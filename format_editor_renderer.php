@@ -40,6 +40,24 @@ class qtype_aitext_format_editor_renderer extends qtype_aitext_format_renderer_b
     }
 
     /**
+     * {@inheritDoc}
+     */
+    public function response_area_read_only($name, $qa, $step, $lines, $context) {
+        $labelbyid = $qa->get_qt_field_name($name) . '_label';
+
+        $responselabel = $this->displayoptions->add_question_identifier_to_label(get_string('answertext', 'qtype_aitext'));
+        $output = html_writer::tag('h4', $responselabel, ['id' => $labelbyid, 'class' => 'visually-hidden']);
+        $output .= html_writer::tag('div', $this->prepare_response($name, $qa, $step, $context), [
+            'role' => 'textbox',
+            'aria-readonly' => 'true',
+            'aria-labelledby' => $labelbyid,
+            'class' => $this->class_name() . ' qtype_aitext_response readonly',
+        ]);
+
+        return $output;
+    }
+
+    /**
      * Where the student types in their response
      *
      * @param string $name
