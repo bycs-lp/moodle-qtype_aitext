@@ -81,8 +81,7 @@ abstract class qtype_aitext_format_renderer_base extends plugin_renderer_base {
         $isspellcheckused = $question->spellcheck;
         $spellcheckedresponse = $this->prepare_response_spellcheck($qa);
 
-        // Added guard for the case that the ai did not provide any spellchecking, needs improvement.
-        if ($isspellcheckused && !empty($spellcheckedresponse)) {
+        if ($isspellcheckused) {
             // Lib to display the spellcheck diff.
             $this->page->requires->js_call_amd('qtype_aitext/diff');
             $this->page->requires->js_call_amd(
