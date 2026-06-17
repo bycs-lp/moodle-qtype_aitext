@@ -53,6 +53,9 @@ export const init = (readonlyareaselector, spellcheckeditbuttonselector) => {
 export const renderDiff = (readonlyareaselector) => {
     const studentanswer = document.querySelector(readonlyareaselector).innerHTML;
     const spellcheck = document.querySelector(readonlyareaselector).dataset.spellcheck;
+    if (!spellcheck) {
+        return;
+    }
     let span = null;
 
     const diff = Diff.diffChars(studentanswer, spellcheck);
