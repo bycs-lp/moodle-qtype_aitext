@@ -97,18 +97,9 @@ class qtype_aitext_renderer extends qtype_renderer {
             }
         }
 
-        $files = '';
-        if (isset($question->attachments) && $question->attachments) {
-            if (empty($options->readonly)) {
-                $files = $this->files_input($qa, $question->attachments, $options);
-            } else {
-                $files = $this->files_read_only($qa, $options);
-            }
-        }
-
         $result = '';
+        $uniqid = uniqid();
         if (get_config('qtype_aitext', 'backend') === 'local_ai_manager') {
-            $uniqid = uniqid();
             $result .= html_writer::tag(
                 'div',
                 '',
@@ -138,8 +129,12 @@ class qtype_aitext_renderer extends qtype_renderer {
                 ['class' => 'validationerror']
             );
         }
-        $result .= html_writer::tag('div', $files, ['class' => 'attachments']);
-        $result .= html_writer::end_tag('div');
+
+        // Add the spellcheck feedback, only in readonly mode and depending on the display options just like manualcomment .
+        if ($question->spellcheck && $options->readonly && $options->manualcomment != question_display_options::HIDDEN) {
+            $result .= $this->add_spellchecked_response_container($qa, $step, $options->context, $uniqid);
+        }
+
         if (get_config('qtype_aitext', 'backend') === 'local_ai_manager') {
             $result .= html_writer::tag(
                 'div',
@@ -153,7 +148,40 @@ class qtype_aitext_renderer extends qtype_renderer {
             );
         }
 
+        $result .= html_writer::end_tag('div');
+
         return $result;
+    }
+
+    /**
+     * Extract plain text from the response for use in the spellcheck diff.
+     * @param question_attempt $qa
+     * @return string
+     */
+    protected function get_plain_text_response(question_attempt $qa) {
+        $answerstep = $qa->get_last_step_with_qt_var('answer');
+        $answer = $answerstep->get_qt_var('answer');
+        $answerformat = $answerstep->get_qt_var('answerformat') ?? FORMAT_HTML;
+        return $answer ?
+            content_to_text(html_entity_decode($answer), $answerformat) : null;
+    }
+
+    /**
+     * Reduce the spellcheck text to plain text suitable for char-by-char diffs in JS.
+     *
+     * Both the AI-generated value (_spellcheckresponse)and the teacher-edited value (spellcheckedit)
+     * are in FORMAT_PLAIN format. Any html contained is stripped down to plain text by content_to_text.
+     *
+     * @param question_attempt $qa the question attempt.
+     * @return string plain text spellcheck content.
+     */
+    protected function get_spellchecked_respose(question_attempt $qa): string {
+        $teacheredit = $qa->get_last_behaviour_var('spellcheckedit');
+        if ($teacheredit !== null) {
+            return content_to_text($teacheredit, FORMAT_PLAIN);
+        }
+        $ai = $qa->get_last_behaviour_var('_spellcheckresponse') ?? '';
+        return content_to_text(html_entity_decode($ai), FORMAT_HTML);
     }
 
     /**
@@ -219,114 +247,98 @@ class qtype_aitext_renderer extends qtype_renderer {
     }
 
     /**
-     * Displays any attached files when the question is in read-only mode.
-     * @param question_attempt $qa the question attempt to display.
-     * @param question_display_options $options controls what should and should
-     *      not be displayed. Used to get the context.
+     * @param question_attempt $qa
+     * @param question_attempt_step $step
+     * @param context $context
+     * @param string $uniqid
+     * @return string
+     * @throws coding_exception
      */
-    public function files_read_only(question_attempt $qa, question_display_options $options) {
-        global $CFG;
-        $files = $qa->get_last_qt_files('attachments', $options->context->id);
-        $filelist = [];
+    protected function add_spellchecked_response_container(question_attempt $qa, question_attempt_step $step, context $context, string $uniqid) {
+        global $USER;
+        $htmlfragment = "";
+        $spellcheckareaid = 'aitext_spellcheck_area_' . $uniqid;
+        $spellcheckeditbuttonid = 'aitext_spellcheckedit_' . $uniqid;
+        $collapseid = 'aitext_spellcheck_collapse_' . $uniqid;
+        $spellcheckedresponse = $this->get_spellchecked_respose($qa);
+        $response = $this->get_plain_text_response($qa);
+        // Lib to display the spellcheck diff.
+        $this->page->requires->js_call_amd('qtype_aitext/diff');
+        $this->page->requires->js_call_amd(
+            'qtype_aitext/spellcheck',
+            'init',
+            ['#' . $spellcheckareaid, '#' . $spellcheckeditbuttonid]
+        );
 
-        $step = $qa->get_last_step_with_qt_var('attachments');
+        // Toggle link for the collapsible area.
+        $collapsedicon = html_writer::tag('span',
+            $this->output->pix_icon('t/collapsedchevron', get_string('expand')),
+            ['class' => 'collapsed-icon icon-no-margin']
+        );
+        $expandedicon = html_writer::tag('span',
+            $this->output->pix_icon('t/expandedchevron', get_string('collapse')),
+            ['class' => 'expanded-icon icon-no-margin']
+        );
 
-        foreach ($files as $file) {
-            $out = html_writer::link(
-                $qa->get_response_file_url($file),
+        $togglelink = html_writer::link(
+            '#' . $collapseid,
+            $expandedicon . $collapsedicon . get_string('spellchecktoggle', 'qtype_aitext'),
+            [
+                'data-bs-toggle' => 'collapse',
+                'aria-expanded' => 'true',
+                'aria-controls' => $collapseid,
+                'role' => 'button',
+                'class' => 'btn-outline-primary icons-collapse-expand my-3',
+            ]
+        );
+
+        $htmlfragment .= html_writer::tag('div',
+            $togglelink, // . ' ' . get_string('spellchecktoggle', 'qtype_aitext'),
+            ['class' => 'd-flex align-items-center'],
+        );
+
+        // Collapsible content (default open).
+        $collapsiblecontent = '';
+
+        $divoptions = [];
+        $divoptions['id'] = $spellcheckareaid;
+        $divoptions['data-content'] = 'qtype_aitext_spellcheck';
+        $divoptions['data-spellcheck'] = $spellcheckedresponse;
+        $divoptions['data-questionattemptid'] = $qa->get_database_id() ?? '';
+        $divoptions['data-answer'] = $response;
+        $collapsiblecontent .= html_writer::tag(
+            'div',
+            $response,
+            $divoptions,
+        );
+
+        if (
+            has_capability('mod/quiz:grade', $context) ||
+            has_capability('mod/quiz:regrade', $context) ||
+            ($context->contextlevel === CONTEXT_USER && intval($USER->id) === intval($context->instanceid))
+        ) {
+            $btnoptions = ['id' => $spellcheckeditbuttonid, 'class' => 'btn btn-link'];
+            $collapsiblecontent .= html_writer::tag(
+                'button',
                 $this->output->pix_icon(
-                    file_file_icon($file),
-                    get_mimetype_description($file),
-                    'moodle',
-                    ['class' => 'icon']
-                ) . ' ' . s($file->get_filename())
+                    'i/edit',
+                    get_string('spellcheckedit', 'qtype_aitext'),
+                    'moodle'
+                ) . " " . get_string('spellcheckedit', 'qtype_aitext'),
+                $btnoptions
             );
-            if (!empty($CFG->enableplagiarism)) {
-                require_once($CFG->libdir . '/plagiarismlib.php');
-
-                $out .= plagiarism_get_links((object)[
-                    'context' => $options->context->id,
-                    'component' => $qa->get_question()->qtype->plugin_name(),
-                    'area' => $qa->get_usage_id(),
-                    'itemid' => $qa->get_slot(),
-                    'userid' => $step->get_user_id(),
-                    'file' => $file]);
-            }
-            $filelist[] = html_writer::tag('li', $out, ['class' => 'mb-2']);
         }
 
-        $labelbyid = $qa->get_qt_field_name('attachments') . '_label';
-
-        $fileslabel = $options->add_question_identifier_to_label(get_string('answerfiles', 'qtype_aitext'));
-        $output = html_writer::tag('h4', $fileslabel, ['id' => $labelbyid, 'class' => 'visually-hidden']);
-        $output .= html_writer::tag('ul', implode($filelist), [
-            'aria-labelledby' => $labelbyid,
-            'class' => 'list-unstyled m-0',
-        ]);
-        return $output;
-    }
-
-    /**
-     * Displays the input control for when the student should upload a single file.
-     * @param question_attempt $qa the question attempt to display.
-     * @param int $numallowed the maximum number of attachments allowed. -1 = unlimited.
-     * @param question_display_options $options controls what should and should
-     *      not be displayed. Used to get the context.
-     */
-    public function files_input(
-        question_attempt $qa,
-        $numallowed,
-        question_display_options $options
-    ) {
-        global $CFG, $COURSE;
-        require_once($CFG->dirroot . '/lib/form/filemanager.php');
-
-        $pickeroptions = new stdClass();
-        $pickeroptions->mainfile = null;
-        $pickeroptions->maxfiles = $numallowed;
-        $pickeroptions->itemid = $qa->prepare_response_files_draft_itemid(
-            'attachments',
-            $options->context->id
+        // Wrap content in the collapse div.
+        $htmlfragment .= html_writer::tag(
+            'div',
+            $collapsiblecontent,
+            [
+                'id' => $collapseid,
+                'class' => 'collapse show',
+            ]
         );
-        $pickeroptions->context = $options->context;
-        $pickeroptions->return_types = FILE_INTERNAL | FILE_CONTROLLED_LINK;
 
-        $pickeroptions->itemid = $qa->prepare_response_files_draft_itemid(
-            'attachments',
-            $options->context->id
-        );
-        $pickeroptions->accepted_types = $qa->get_question()->filetypeslist;
-
-        $fm = new form_filemanager($pickeroptions);
-        $fm->options->maxbytes = get_user_max_upload_file_size(
-            $this->page->context,
-            $CFG->maxbytes,
-            $COURSE->maxbytes,
-            $qa->get_question()->maxbytes
-        );
-        $filesrenderer = $this->page->get_renderer('core', 'files');
-
-        $text = '';
-        if (!empty($qa->get_question()->filetypeslist)) {
-            $text = html_writer::tag('p', get_string('acceptedfiletypes', 'qtype_aitext'));
-            $filetypesutil = new \core_form\filetypes_util();
-            $filetypes = $qa->get_question()->filetypeslist;
-            $filetypedescriptions = $filetypesutil->describe_file_types($filetypes);
-            $text .= $this->render_from_template('core_form/filetypes-descriptions', $filetypedescriptions);
-        }
-
-        $output = html_writer::start_tag('fieldset');
-        $fileslabel = $options->add_question_identifier_to_label(get_string('answerfiles', 'qtype_aitext'));
-        $output .= html_writer::tag('legend', $fileslabel, ['class' => 'visually-hidden']);
-        $output .= $filesrenderer->render($fm);
-        $output .= html_writer::empty_tag('input', [
-            'type' => 'hidden',
-            'name' => $qa->get_qt_field_name('attachments'),
-            'value' => $pickeroptions->itemid,
-        ]);
-        $output .= $text;
-        $output .= html_writer::end_tag('fieldset');
-
-        return $output;
+        return $htmlfragment;
     }
 }

@@ -55,6 +55,18 @@ class qtype_aitext_format_plain_renderer extends qtype_aitext_format_renderer_ba
     }
 
     /**
+     * {@inheritDoc}
+     */
+    public function response_area_read_only($name, $qa, $step, $lines, $context) {
+        $id = $qa->get_qt_field_name($name) . '_id';
+
+        $responselabel = $this->displayoptions->add_question_identifier_to_label(get_string('answertext', 'qtype_essay'));
+        $output = html_writer::tag('label', $responselabel, ['class' => 'visually-hidden', 'for' => $id]);
+        $output .= $this->textarea($step->get_qt_var($name), $lines, ['id' => $id, 'readonly' => 'readonly']);
+        return $output;
+    }
+
+    /**
      * Text area for response to be keyed in
      *
      * @param string $name
