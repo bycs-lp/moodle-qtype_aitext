@@ -175,7 +175,7 @@ class qtype_aitext_renderer extends qtype_renderer {
      * @param question_attempt $qa the question attempt.
      * @return string plain text spellcheck content.
      */
-    protected function get_spellchecked_respose(question_attempt $qa): string {
+    protected function get_spellchecked_response(question_attempt $qa): string {
         $teacheredit = $qa->get_last_behaviour_var('spellcheckedit');
         if ($teacheredit !== null) {
             return content_to_text($teacheredit, FORMAT_PLAIN);
@@ -231,8 +231,10 @@ class qtype_aitext_renderer extends qtype_renderer {
             return '';
         }
 
+        $output = '';
+
         $question = $qa->get_question();
-        return html_writer::nonempty_tag(
+        $output .= html_writer::nonempty_tag(
             'div',
             $question->format_text(
                 $question->graderinfo,
@@ -244,6 +246,34 @@ class qtype_aitext_renderer extends qtype_renderer {
             ),
             ['class' => 'graderinfo']
         );
+
+        // Show AI-generated feedback as a reference for the grader.
+        $aicomment = $qa->get_last_behaviour_var('_comment');
+        if (!empty($aicomment)) {
+            $heading = get_string('aifeedbackforgrader', 'qtype_aitext');
+            $helpicon = $this->output->help_icon(
+                'aifeedbackforgrader',
+                'qtype_aitext'
+            );
+
+            $output .= html_writer::start_tag(
+                'div',
+                ['class' => 'alert alert-info mt-2 mb-2']
+            );
+            $output .= html_writer::tag(
+                'div',
+                html_writer::tag('strong', $heading) . ' ' . $helpicon,
+                ['class' => 'mb-1']
+            );
+            $output .= format_text(
+                $aicomment,
+                FORMAT_HTML,
+                ['context' => $options->context]
+            );
+            $output .= html_writer::end_tag('div');
+        }
+
+        return $output;
     }
 
     /**
@@ -260,7 +290,7 @@ class qtype_aitext_renderer extends qtype_renderer {
         $spellcheckareaid = 'aitext_spellcheck_area_' . $uniqid;
         $spellcheckeditbuttonid = 'aitext_spellcheckedit_' . $uniqid;
         $collapseid = 'aitext_spellcheck_collapse_' . $uniqid;
-        $spellcheckedresponse = $this->get_spellchecked_respose($qa);
+        $spellcheckedresponse = $this->get_spellchecked_response($qa);
         $response = $this->get_plain_text_response($qa);
         // Lib to display the spellcheck diff.
         $this->page->requires->js_call_amd('qtype_aitext/diff');
