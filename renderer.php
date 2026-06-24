@@ -277,6 +277,7 @@ class qtype_aitext_renderer extends qtype_renderer {
     }
 
     /**
+     * Add a container showing the diffs between the user response and the spellchecked version.
      * @param question_attempt $qa
      * @param question_attempt_step $step
      * @param context $context
@@ -301,13 +302,15 @@ class qtype_aitext_renderer extends qtype_renderer {
         );
 
         // Toggle link for the collapsible area.
-        $collapsedicon = html_writer::tag('span',
+        $collapsedicon = html_writer::tag(
+            'span',
             $this->output->pix_icon('t/collapsedchevron', get_string('expand')),
-            ['class' => 'collapsed-icon icon-no-margin']
+            ['class' => 'collapsed-icon icon-no-margin'],
         );
-        $expandedicon = html_writer::tag('span',
+        $expandedicon = html_writer::tag(
+            'span',
             $this->output->pix_icon('t/expandedchevron', get_string('collapse')),
-            ['class' => 'expanded-icon icon-no-margin']
+            ['class' => 'expanded-icon icon-no-margin'],
         );
 
         $togglelink = html_writer::link(
@@ -323,7 +326,7 @@ class qtype_aitext_renderer extends qtype_renderer {
         );
 
         $htmlfragment .= html_writer::tag('div',
-            $togglelink, // . ' ' . get_string('spellchecktoggle', 'qtype_aitext'),
+            $togglelink,
             ['class' => 'd-flex align-items-center'],
         );
 
