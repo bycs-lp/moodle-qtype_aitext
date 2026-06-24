@@ -279,13 +279,16 @@ class qtype_aitext_renderer extends qtype_renderer {
     /**
      * Add a container showing the diffs between the user response and the spellchecked version.
      * @param question_attempt $qa
-     * @param question_attempt_step $step
      * @param context $context
      * @param string $uniqid
      * @return string
      * @throws coding_exception
      */
-    protected function add_spellchecked_response_container(question_attempt $qa, question_attempt_step $step, context $context, string $uniqid) {
+    protected function add_spellchecked_response_container(
+        question_attempt $qa,
+        context $context,
+        string $uniqid
+    ) {
         global $USER;
         $htmlfragment = "";
         $spellcheckareaid = 'aitext_spellcheck_area_' . $uniqid;
@@ -325,7 +328,8 @@ class qtype_aitext_renderer extends qtype_renderer {
             ]
         );
 
-        $htmlfragment .= html_writer::tag('div',
+        $htmlfragment .= html_writer::tag(
+            'div',
             $togglelink,
             ['class' => 'd-flex align-items-center'],
         );

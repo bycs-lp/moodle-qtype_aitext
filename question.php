@@ -163,7 +163,8 @@ class qtype_aitext_question extends question_graded_automatically {
      * @return question_behaviour the behaviour instance to use.
      */
     public function make_behaviour(question_attempt $qa, $preferredbehaviour) {
-        if (in_array(
+        if (
+            in_array(
                 $preferredbehaviour,
                 ['immediatefeedback', 'immediatecbm', 'adaptive', 'adaptivenopenalty', 'interactive', 'interactivecountback'],
                 true
