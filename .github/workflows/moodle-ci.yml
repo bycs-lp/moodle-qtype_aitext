@@ -47,14 +47,14 @@ jobs:
         with:
           repository: bycs-lp/moodle-qbehaviour_immediate_for_aitext
           ref: main
-          path: extra-plugins/question/behaviour/immediate_for_aitext
+          path: extra-plugins/immediate_for_aitext
 
       - name: Checkout qbehaviour_deferred_for_aitext
         uses: actions/checkout@v3
         with:
           repository: bycs-lp/moodle-qbehaviour_deferred_for_aitext
           ref: main
-          path: extra-plugins/question/behaviour/deferred_for_aitext
+          path: extra-plugins/deferred_for_aitext
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
