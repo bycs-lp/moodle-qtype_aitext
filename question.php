@@ -163,18 +163,13 @@ class qtype_aitext_question extends question_graded_automatically {
      * @return question_behaviour the behaviour instance to use.
      */
     public function make_behaviour(question_attempt $qa, $preferredbehaviour) {
-
-        // Immediate-style: grade on each submit, multiple tries possible.
-        // adaptive, adaptivenopenalty, interactive, interactivecountback all call
-        // grade_response() per submit, just like immediatefeedback/immediatecbm.
-        if (in_array($preferredbehaviour, [
-            'immediatefeedback',
-            'immediatecbm',
-            'adaptive',
-            'adaptivenopenalty',
-            'interactive',
-            'interactivecountback',
-        ], true)) {
+        if (
+            in_array(
+                $preferredbehaviour,
+                ['immediatefeedback', 'immediatecbm', 'adaptive', 'adaptivenopenalty', 'interactive', 'interactivecountback'],
+                true
+            )
+        ) {
             return question_engine::make_behaviour('immediate_for_aitext', $qa, $preferredbehaviour);
         }
 
@@ -369,7 +364,6 @@ class qtype_aitext_question extends question_graded_automatically {
             $fraction = (float) $contentobject->marks / $this->defaultmark;
         }
         return [$fraction, question_state::graded_state_for_fraction($fraction)];
-
     }
 
     /**

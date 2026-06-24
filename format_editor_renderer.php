@@ -40,7 +40,14 @@ class qtype_aitext_format_editor_renderer extends qtype_aitext_format_renderer_b
     }
 
     /**
-     * {@inheritDoc}
+     * Render the response area as read-only.
+     *
+     * @param string $name the variable name this input edits.
+     * @param question_attempt $qa the question attempt being displayed.
+     * @param question_attempt_step $step the current step.
+     * @param int $lines the number of lines for the input area.
+     * @param object $context the context the attempt belongs to.
+     * @return string HTML fragment.
      */
     public function response_area_read_only($name, $qa, $step, $lines, $context) {
         $labelbyid = $qa->get_qt_field_name($name) . '_label';

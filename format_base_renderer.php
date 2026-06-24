@@ -53,9 +53,13 @@ abstract class qtype_aitext_format_renderer_base extends plugin_renderer_base {
      * @param object $context the context teh output belongs to.
      * @return string html to display the response.
      */
-    abstract public function response_area_read_only($name, question_attempt $qa,
-        question_attempt_step $step, $lines, $context);
-
+    abstract public function response_area_read_only(
+        $name,
+        question_attempt $qa,
+        question_attempt_step $step,
+        $lines,
+        $context
+    );
 
     /**
      * Render the students response when the question is in input mode.
