@@ -212,7 +212,7 @@ class qtype_aitext extends question_type {
      */
     public function delete_question($questionid, $contextid) {
         global $DB;
-
+        $DB->delete_records('qtype_aitext_sampleresponses', ['question' => $questionid]);
         $DB->delete_records('qtype_aitext', ['questionid' => $questionid]);
         parent::delete_question($questionid, $contextid);
     }
