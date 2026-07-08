@@ -176,6 +176,12 @@ class qtype_aitext_renderer extends qtype_renderer {
 
                 $prompt = $qa->get_last_qt_var('-aiprompt');
 
+                // Clean the prompt so no script/JS can be injected, while keeping safe HTML.
+                $prompt = format_text($prompt, FORMAT_HTML, [
+                    'context' => $options->context ?? $this->page->context,
+                    'noclean' => false,
+                ]);
+
                 $showprompt  = '<br /><button id="showprompt" class="rounded">';
                 $showprompt .= get_string('showprompt', 'qtype_aitext') . '</button>';
                 $showprompt .= '<div id="fullprompt" class="hidden">' . $prompt . '</div>';
