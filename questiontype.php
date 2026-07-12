@@ -401,8 +401,8 @@ class qtype_aitext extends question_type {
         }
         foreach ($question->options->sampleresponses as $sampleresponse) {
             $output .= "     <sampleresponse>\n";
-            $output .= '      <question>' . $sampleresponse->question . "</question>\n";
-            $output .= '      <response>' . $sampleresponse->response . "</response>\n";
+            $output .= '      <question>' . $format->xml_escape($sampleresponse->question) . "</question>\n";
+            $output .= '      <response>' . $format->xml_escape($sampleresponse->response) . "</response>\n";
             $output .= "     </sampleresponse>\n";
         }
         return $output;
