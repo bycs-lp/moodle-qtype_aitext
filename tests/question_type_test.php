@@ -111,4 +111,39 @@ final class question_type_test extends \advanced_testcase {
         $q = $this->get_test_question_data();
         $this->assertEquals([], $this->qtype->get_possible_responses($q));
     }
+
+    /**
+     * Deleting a question must also delete its sample responses so no orphan
+     * rows are left behind in qtype_aitext_sampleresponses.
+     *
+     * @covers ::delete_question()
+     *
+     * @return void
+     */
+    public function test_delete_question_removes_sampleresponses(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
+        $category = $generator->create_question_category();
+        // The 'editor' fixture ships one sample response ('response1').
+        $question = $generator->create_question('aitext', 'editor', ['category' => $category->id]);
+
+        // Sanity check: the options row and one sample response row exist.
+        $this->assertTrue($DB->record_exists('qtype_aitext', ['questionid' => $question->id]));
+        $this->assertEquals(
+            1,
+            $DB->count_records('qtype_aitext_sampleresponses', ['question' => $question->id])
+        );
+
+        $this->qtype->delete_question($question->id, $category->contextid);
+
+        // Both the options row and the sample response rows must be gone.
+        $this->assertFalse($DB->record_exists('qtype_aitext', ['questionid' => $question->id]));
+        $this->assertEquals(
+            0,
+            $DB->count_records('qtype_aitext_sampleresponses', ['question' => $question->id])
+        );
+    }
 }
