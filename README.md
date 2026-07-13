@@ -6,9 +6,8 @@ This Moodle question type accepts free text which is then evaluated by a remote 
 It is being used with teachers in Universities around
 the world including in Germany, Japan, Isreal, and Turkey to my knowledge
 
-It requires either a paid for ChatGPT api account which will give access to ChatGPT4 or
-other Large Language Model such as Ollama or https://groq.com.
-ct
+It requires access to an external Large Language Model with an OpenAI API compatible interface, such as ChatGPT or Ollama.
+
 
 Additional documentation can be found here https://github.com/marcusgreen/moodle-qtype_aitext/wiki
 
