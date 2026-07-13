@@ -1,12 +1,17 @@
 ### Moodle AIText question type
 
+## Unreleased code
+
+Thanks to Richard Aljaste for a fix to an issue with translating the disclaimer language https://github.com/marcusgreen/moodle-qtype_aitext/pull/73
+
+
 ## Release 2.03 Jul 2026
 
 Sample responses are now XML-escaped on export. Any &, < or > in the sample response text previously produced invalid XML that failed to re-import.
 
 Sample responses are deleted when the question they belong to is deleted, rather than being left orphaned in the database.
 
-The AI prompt shown by the "Show prompt" button when previewing a question is now sanitized before output. The renderer previously inserted the raw prompt straight into the page HTML, so script tags, event handlers or javascript: URLs held in the prompt would execute in the previewer's browser. It is now passed through format_text() with cleaning enabled, which strips those while leaving safe markup intact.
+The AI prompt shown by the "Show prompt" button when previewing a question is now sanitized before output. The renderer previously inserted the raw prompt straight into the page HTML, so script tags, event handlers or javascript: URLs held in the prompt would execute in the previewer's browser. It is now passed through format_text() with cleaning enabled, which strips those while leaving safe markup intact. Thanks to Paola Maneggia for feedback on this release and much other work.
 
 ## Release 2.02 Apr 2026
 
