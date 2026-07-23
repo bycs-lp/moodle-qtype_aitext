@@ -153,10 +153,15 @@ class qtype_aitext extends question_type {
         $options->responsetemplateformat = $formdata->responsetemplate['format'];
 
         $DB->update_record('qtype_aitext', $options);
+        $DB->delete_records('qtype_aitext_sampleresponses', ['question' => $formdata->id]);
         foreach ($formdata->sampleresponses as $sr) {
-            $sampleresponse['question'] = $formdata->id;
-            $sampleresponse['response'] = $sr;
-            $DB->insert_record('qtype_aitext_sampleresponses', $sampleresponse);
+            if (trim((string) $sr) === '') {
+                continue;
+            }
+            $DB->insert_record('qtype_aitext_sampleresponses', [
+                'question' => $formdata->id,
+                'response' => $sr,
+            ]);
         }
     }
     /**
