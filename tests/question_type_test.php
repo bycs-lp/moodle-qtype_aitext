@@ -146,4 +146,53 @@ final class question_type_test extends \advanced_testcase {
             $DB->count_records('qtype_aitext_sampleresponses', ['question' => $question->id])
         );
     }
+
+    /**
+     * Re-saving the same question must not accumulate duplicate sample response
+     * rows. The stored set must match the submitted form, and blank entries are
+     * skipped.
+     *
+     * @covers ::save_question_options()
+     *
+     * @return void
+     */
+    public function test_save_question_options_no_duplicate_sampleresponses(): void {
+        global $DB, $CFG;
+        require_once($CFG->dirroot . '/question/type/aitext/tests/helper.php');
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
+        $category = $generator->create_question_category();
+        // The 'editor' fixture ships one sample response ('response1').
+        $question = $generator->create_question('aitext', 'editor', ['category' => $category->id]);
+
+        $this->assertEquals(
+            1,
+            $DB->count_records('qtype_aitext_sampleresponses', ['question' => $question->id])
+        );
+
+        // Build form data for a re-save of the same question record. Two real
+        // sample responses plus a blank one that must be skipped.
+        $helper = new \qtype_aitext_test_helper();
+        $formdata = $helper->get_aitext_question_form_data_editor();
+        $formdata->id = $question->id;
+        $formdata->context = \context::instance_by_id($category->contextid);
+        $formdata->sampleresponses = ['first response', 'second response', '   '];
+
+        $this->qtype->save_question_options($formdata);
+
+        // Exactly two rows: no duplication of the original, blank entry skipped.
+        $this->assertEquals(
+            2,
+            $DB->count_records('qtype_aitext_sampleresponses', ['question' => $question->id])
+        );
+
+        // Saving again with the same data keeps the count stable.
+        $this->qtype->save_question_options($formdata);
+        $this->assertEquals(
+            2,
+            $DB->count_records('qtype_aitext_sampleresponses', ['question' => $question->id])
+        );
+    }
 }
