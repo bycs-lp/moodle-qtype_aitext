@@ -81,3 +81,45 @@ function qtype_aitext_migrate_legacy_expert_prompt(string $aiprompt): string {
 
     return preg_replace('/\s+/', ' ', trim($newprompt));
 }
+
+/**
+ * Migrate legacy question attempts stored with the 'interactivecountback' behaviour.
+ *
+ * Historically qtype_aitext_question extended question_graded_automatically_with_countback,
+ * so an attempt started under the archetypal 'interactive' preferred behaviour was resolved
+ * and stored (in question_attempts.behaviour) as 'interactivecountback'. Since qtype_aitext
+ * no longer implements question_automatically_gradable_with_countback, reconstructing that
+ * stored behaviour now fails with a coding_exception ("This behaviour (interactivecountback)
+ * cannot work with this question"), breaking review and regrade of those legacy attempts.
+ *
+ * A new attempt started under 'interactive' is now resolved to 'immediate_for_aitext'
+ * (see qtype_aitext_question::make_behaviour()), so this migration rewrites the stored
+ * behaviour of the affected legacy attempts to the same value for consistency.
+ *
+ * @return int The number of question attempts that were migrated.
+ */
+function qtype_aitext_upgrade_migrate_countback_attempts(): int {
+    global $DB;
+
+    // Identify the affected attempts then update them via get_in_or_equal().
+    $selectsql = "SELECT qa.id
+                    FROM {question_attempts} qa
+                    JOIN {question} q ON q.id = qa.questionid
+                   WHERE qa.behaviour = :oldbehaviour
+                     AND q.qtype = :qtype";
+    $selectparams = [
+        'oldbehaviour' => 'interactivecountback',
+        'qtype' => 'aitext',
+    ];
+
+    $attemptids = $DB->get_fieldset_sql($selectsql, $selectparams);
+
+    if (empty($attemptids)) {
+        return 0;
+    }
+
+    [$insql, $inparams] = $DB->get_in_or_equal($attemptids, SQL_PARAMS_NAMED);
+    $DB->set_field_select('question_attempts', 'behaviour', 'immediate_for_aitext', "id {$insql}", $inparams);
+
+    return count($attemptids);
+}

@@ -135,4 +135,68 @@ final class upgradelib_test extends \advanced_testcase {
         // Second migration should be idempotent (0 records).
         $this->assertEquals(0, qtype_aitext_upgrade_migrate_legacy_prompts());
     }
+
+    /**
+     * Test migration of legacy 'interactivecountback' attempts to 'immediate_for_aitext'.
+     *
+     * @covers ::qtype_aitext_upgrade_migrate_countback_attempts
+     */
+    public function test_upgrade_migrate_countback_attempts(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
+        $category = $generator->create_question_category();
+
+        $aitext = $generator->create_question('aitext', null, ['category' => $category->id]);
+        $shortanswer = $generator->create_question('shortanswer', null, ['category' => $category->id]);
+
+        $aitextquestion = \question_bank::load_question($aitext->id);
+        $shortanswerquestion = \question_bank::load_question($shortanswer->id);
+
+        // Legacy broken attempt: aitext + interactivecountback -> should be migrated.
+        $tomigrate = $this->create_attempt($aitextquestion, 'interactivecountback');
+        // aitext with a compatible behaviour -> must be left untouched.
+        $aitextimmediate = $this->create_attempt($aitextquestion, 'immediatefeedback');
+        // Non-aitext question with interactivecountback -> must be left untouched.
+        $other = $this->create_attempt($shortanswerquestion, 'interactivecountback');
+
+        // Only the single aitext interactivecountback attempt is migrated.
+        $this->assertEquals(1, qtype_aitext_upgrade_migrate_countback_attempts());
+
+        $this->assertEquals('immediate_for_aitext',
+            $DB->get_field('question_attempts', 'behaviour', ['id' => $tomigrate]));
+        $this->assertEquals('immediatefeedback',
+            $DB->get_field('question_attempts', 'behaviour', ['id' => $aitextimmediate]));
+        $this->assertEquals('interactivecountback',
+            $DB->get_field('question_attempts', 'behaviour', ['id' => $other]));
+
+        // Second migration should be idempotent (0 records).
+        $this->assertEquals(0, qtype_aitext_upgrade_migrate_countback_attempts());
+    }
+
+    /**
+     * Create a real question attempt via the question engine and store it, then
+     * override the behavior to the specified value to simulate a legacy attempt.
+     *
+     * @param \question_definition $question the question to attempt.
+     * @param string $behaviour the behaviour name to store on the attempt.
+     * @return int the question_attempts id.
+     */
+    private function create_attempt(\question_definition $question, string $behaviour): int {
+        global $DB;
+
+        $quba = \question_engine::make_questions_usage_by_activity(
+            'core_question_preview', \context_system::instance());
+        $quba->set_preferred_behaviour('deferredfeedback');
+        $slot = $quba->add_question($question);
+        $quba->start_all_questions();
+        \question_engine::save_questions_usage_by_activity($quba);
+
+        $attemptid = $DB->get_field('question_attempts', 'id',
+            ['questionusageid' => $quba->get_id(), 'slot' => $slot], MUST_EXIST);
+        $DB->set_field('question_attempts', 'behaviour', $behaviour, ['id' => $attemptid]);
+
+        return $attemptid;
+    }
 }

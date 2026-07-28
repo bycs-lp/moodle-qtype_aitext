@@ -115,5 +115,18 @@ function xmldb_qtype_aitext_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026020601, 'qtype', 'aitext');
     }
 
+    if ($oldversion < 2026072800) {
+        // Migrate legacy attempts stored as 'interactivecountback' to 'immediate_for_aitext'.
+        $migratedcount = qtype_aitext_upgrade_migrate_countback_attempts();
+
+        if ($migratedcount > 0) {
+            mtrace("Migrated {$migratedcount} legacy 'interactivecountback' aitext question attempt(s) " .
+                "to 'immediate_for_aitext'.");
+        }
+
+        // Aitext savepoint reached.
+        upgrade_plugin_savepoint(true, 2026072800, 'qtype', 'aitext');
+    }
+
     return true;
 }
