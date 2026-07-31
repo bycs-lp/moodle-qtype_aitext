@@ -132,7 +132,7 @@ class qtype_aitext_renderer extends qtype_renderer {
 
         // Add the spellcheck feedback, only in readonly mode and depending on the display options just like manualcomment .
         if ($question->spellcheck && $options->readonly && $options->manualcomment != question_display_options::HIDDEN) {
-            $result .= $this->add_spellchecked_response_container($qa, $step, $options->context, $uniqid);
+            $result .= $this->add_spellchecked_response_container($qa, $options->context, $uniqid);
         }
 
         if (get_config('qtype_aitext', 'backend') === 'local_ai_manager') {
