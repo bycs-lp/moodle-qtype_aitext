@@ -54,9 +54,16 @@ if ($ADMIN->fulltree) {
         'qtype_aitext/jsonprompt',
         new lang_string('jsonprompt', 'qtype_aitext'),
         new lang_string('jsonprompt_setting', 'qtype_aitext'),
-        'Return only a JSON object which enumerates a set of 2 elements.The JSON object should be in
-	this format: {feedback":"string","marks":"number"} where marks is a single number summing all marks.
-   	Also show the marks as part of the feedback.',
+        'Return only a JSON object which enumerates a set of 2 elements. The JSON object should be in
+	this format: {"feedback":"string","marks":"number"} where marks is a single number summing all marks.
+	Formatting rules for the "feedback" string:
+    1. Write the text strictly using Markdown formatting.
+    2. DO NOT use raw HTML tags (such as <br>, <b>, <i>, <p>, <span>, etc.) for text formatting or layout.
+    3. Raw HTML is ONLY allowed when it is part of code examples inside Markdown code fences (```html ... ```) or inline backticks (`...`).
+    4. Ensure all double quotes inside the JSON string values are properly escaped (\").
+    5. Escape correctly any backslashes in the JSON string values.
+    6. Use particular care in Latex expressions that will need to have one level more of escaping for the backslashes (e.g., \\frac{1}{2} should be written as \\\\frac{1}{2} in the JSON string) to survive conversion from markdown.
+    7. If a mark is required, include the achieved marks as fraction of the total achieved/total explicitly as part of the written feedback text.',
         PARAM_RAW,
         80,
         6
