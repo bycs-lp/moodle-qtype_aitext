@@ -25,6 +25,7 @@
 
 defined('MOODLE_INTERNAL') || die();
 
+use qtype_aitext\comment_formatter;
 use qtype_aitext\response_formatter;
 
 require_once($CFG->dirroot . '/question/type/aitext/format_base_renderer.php');
@@ -222,12 +223,20 @@ class qtype_aitext_renderer extends qtype_renderer {
                 $showprompt .= '<div id="fullprompt" class="hidden">' . $prompt . '</div>';
 
                 // Store the modified feedback in a variable.
-                $feedback = $comment . $showprompt;
+                $feedback = comment_formatter::to_html(
+                    $comment,
+                    $qa->get_last_behaviour_var('_commentformat'),
+                    $options->context ?? $this->page->context
+                ) . $showprompt;
                 return $feedback;
             }
 
             // Return the comment if it exists, otherwise empty string.
-            return $comment ?? '';
+            return comment_formatter::to_html(
+                $comment,
+                $qa->get_last_behaviour_var('_commentformat'),
+                $options->context ?? $this->page->context
+            );
         }
 
         return '';
@@ -279,10 +288,10 @@ class qtype_aitext_renderer extends qtype_renderer {
                 html_writer::tag('strong', $heading) . ' ' . $helpicon,
                 ['class' => 'mb-1']
             );
-            $output .= format_text(
+            $output .= comment_formatter::to_html(
                 $aicomment,
-                FORMAT_HTML,
-                ['context' => $options->context]
+                $qa->get_last_behaviour_var('_commentformat'),
+                $options->context
             );
             $output .= html_writer::end_tag('div');
         }

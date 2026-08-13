@@ -131,6 +131,15 @@ class qtype_aitext_external extends external_api {
             );
             $feedback = $aiquestion->perform_request($fullaiprompt);
             $contentobject = $aiquestion->process_feedback($feedback);
+            // process_feedback() now returns the raw feedback. This is an ephemeral
+            // preview for the question-editing "test sample response" tool and never stored, and the
+            // JS injects it via innerHTML, so format it for display here using the same helper the
+            // display renderers use.
+            $contentobject->feedback = \qtype_aitext\comment_formatter::to_html(
+                $contentobject->feedback,
+                FORMAT_MARKDOWN,
+                $context
+            );
         } else {
             $contentobject = (object)["feedback" => get_string('err_parammissing', 'qtype_aitext'), "marks" => 0];
         }
