@@ -26,6 +26,7 @@
 
 defined('MOODLE_INTERNAL') || die();
 
+use qtype_aitext\json_object_extractor;
 use qtype_aitext\response_formatter;
 
 require_once($CFG->dirroot . '/question/type/questionbase.php');
@@ -557,54 +558,50 @@ class qtype_aitext_question extends question_graded_automatically {
      * @return stdClass|null the JSON object or null if none found.
      */
     private function extract_single_json_object(string $text): ?stdClass {
-        $start = strpos($text, '{');
-        if ($start === false) {
+        // Fast path: LLM responses are frequently already clean JSON. Decode the whole response
+        // first and branch on the parser error to decide how to proceed, so the common case skips
+        // the structural scan (and its recursion) entirely.
+        $decoded = json_decode($text);
+        switch (json_last_error()) {
+            case JSON_ERROR_NONE:
+                // The whole response parsed. Only accept it when it is the expected object; a bare
+                // scalar or array is not the {"feedback": ..., "marks": ...} structure we are after,
+                // so in that case we fall through to structural extraction.
+                if ($decoded instanceof \stdClass) {
+                    return $decoded;
+                }
+                break;
+            case JSON_ERROR_UTF8:
+                // A broken byte sequence: the structural scanner and any re-decode would fail the
+                // same way, so there is nothing to recover here.
+                return null;
+            case JSON_ERROR_DEPTH:
+                // Nesting beyond the decoder limit: refuse rather than let the recursive scanner
+                // descend just as deeply and risk exhausting the call stack.
+                return null;
+            default:
+                // JSON_ERROR_SYNTAX and friends: the JSON is most likely wrapped in prose, Markdown
+                // or HTML, or carries invalid escapes (e.g. LaTeX backslashes). Extract it
+                // structurally below and, if needed, repair the escaping.
+                break;
+        }
+
+        $json = (new json_object_extractor())->extract($text);
+        if ($json === null) {
             return null;
         }
-        $depth = 0;
-        $json = '';
-        for ($i = $start, $len = strlen($text); $i < $len; $i++) {
-            if ($text[$i] === '{') {
-                $depth++;
-            }
-            if ($depth > 0) {
-                $json .= $text[$i];
-            }
-            if ($text[$i] === '}') {
-                $depth--;
-                if ($depth === 0) {
-                    break;
-                }
-            }
+        // If the located candidate is already valid JSON decode it directly.
+        $decoded = json_decode($json);
+        if (json_last_error() === JSON_ERROR_NONE && $decoded instanceof \stdClass) {
+            return $decoded;
         }
-        if ($json) {
-            // Sometimes, the external LLM will return bad JSON (with not properly escaped backslashes, for example in a LaTeX
-            // formula). The returned JSON then contains something like "... \( K_\alpha \) ...", which is invalid JSON.
-            // However, we cannot just blindly escape all backslashes, because that would also mess up valid JSON sequences like
-            // "\n" or "\t" and we cannot know if these are intended well escaped backslashes or the LLM just messed up and forgot
-            // to escape.
-            // So we are trying to parse LaTeX-like sequences explicitely and only inside them add an extra backslash to each
-            // backslash.
-            // Try to decode the JSON as-is first. If the LLM returned valid JSON, use it directly.
-            // This avoids corrupting already properly escaped backslashes (e.g. \\( \\frac{x}{3} \\)).
-            $decoded = json_decode($json);
-            if (json_last_error() === JSON_ERROR_NONE) {
-                return $decoded;
-            }
-            $json = preg_replace_callback(
-                '/\\\\{1,2}\(.*?\\\\{1,2}\)|\\\\{1,2}\[.*?\\\\{1,2}\]|\$\$.*?\$\$|\$[^$]+\$/s',
-                function ($matches) {
-                    if (empty($matches[0])) {
-                        return $matches[0] ?? '';
-                    }
-                    return str_replace('\\', '\\\\', $matches[0]);
-                },
-                $json
-            );
-            $decoded = json_decode($json);
-            if (json_last_error() === JSON_ERROR_NONE) {
-                return $decoded;
-            }
+        // Otherwise the candidate carries invalid escaping: unescaped LaTeX backslashes (e.g.
+        // "\(K_\alpha\)") or literal control characters (e.g. the raw newlines of a fenced code
+        // block). Repair the in-string escaping and decode once more.
+        $json = json_object_extractor::repair_string_escapes($json);
+        $decoded = json_decode($json);
+        if (json_last_error() === JSON_ERROR_NONE && $decoded instanceof \stdClass) {
+            return $decoded;
         }
         return null;
     }

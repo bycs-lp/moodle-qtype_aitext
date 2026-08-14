@@ -381,12 +381,21 @@ final class question_test extends \advanced_testcase {
                 'expectedmathjaxapplied' => false,
                 'expectedmarks' => 0.5,
             ],
-            'valid_json_with_code' => [
+            'valid_json_with_code_too_many_open_braces' => [
                 'json' => '{"feedback": "The code has a syntax error: the opening brace '
-                    . '\'{\' after the function signature is missing.", "marks": 0.5}',
+                    . '{ after the function signature is missing.", "marks": 0.5} this is all',
                 'exceptionexpected' => false,
                 'expectedfeedback' => 'The code has a syntax error: the opening brace '
-                    . '\'{\' after the function signature is missing.',
+                    . '{ after the function signature is missing.',
+                'expectedmathjaxapplied' => false,
+                'expectedmarks' => 0.5,
+            ],
+            'valid_json_with_code_too_many_closed_braces' => [
+                'json' => '{"feedback": "The code has a syntax error: the closing brace '
+                    . '} after the function signature is missing.", "marks": 0.5}',
+                'exceptionexpected' => false,
+                'expectedfeedback' => 'The code has a syntax error: the closing brace '
+                    . '} after the function signature is missing.',
                 'expectedmathjaxapplied' => false,
                 'expectedmarks' => 0.5,
             ],
