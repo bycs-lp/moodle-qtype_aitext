@@ -40,6 +40,31 @@ class qtype_aitext_format_editor_renderer extends qtype_aitext_format_renderer_b
     }
 
     /**
+     * Render the response area as read-only.
+     *
+     * @param string $name the variable name this input edits.
+     * @param question_attempt $qa the question attempt being displayed.
+     * @param question_attempt_step $step the current step.
+     * @param int $lines the number of lines for the input area.
+     * @param object $context the context the attempt belongs to.
+     * @return string HTML fragment.
+     */
+    public function response_area_read_only($name, $qa, $step, $lines, $context) {
+        $labelbyid = $qa->get_qt_field_name($name) . '_label';
+
+        $responselabel = $this->displayoptions->add_question_identifier_to_label(get_string('answertext', 'qtype_aitext'));
+        $output = html_writer::tag('h4', $responselabel, ['id' => $labelbyid, 'class' => 'visually-hidden']);
+        $output .= html_writer::tag('div', $this->prepare_response($name, $qa, $step, $context), [
+            'role' => 'textbox',
+            'aria-readonly' => 'true',
+            'aria-labelledby' => $labelbyid,
+            'class' => $this->class_name() . ' qtype_aitext_response readonly',
+        ]);
+
+        return $output;
+    }
+
+    /**
      * Where the student types in their response
      *
      * @param string $name
@@ -80,7 +105,7 @@ class qtype_aitext_format_editor_renderer extends qtype_aitext_format_renderer_b
 
         $responselabel = $this->displayoptions->add_question_identifier_to_label(get_string('answertext', 'qtype_aitext'));
         $output = html_writer::tag('label', $responselabel, [
-            'class' => 'sr-only',
+            'class' => 'visually-hidden',
             'for' => $id,
         ]);
         $output .= html_writer::start_tag('div', ['class' =>

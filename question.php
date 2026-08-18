@@ -35,7 +35,7 @@ require_once($CFG->dirroot . '/question/type/questionbase.php');
  * @copyright  2025 Marcus Green
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class qtype_aitext_question extends question_graded_automatically_with_countback {
+class qtype_aitext_question extends question_graded_automatically {
     /**
      * Plain text or html
      * @var string
@@ -114,13 +114,6 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
      */
     public $markscheme;
 
-    /**
-     * Question attempt step
-     *
-     * @var mixed
-     */
-    public $step;
-
     /** @var int */
     public $defaultmark;
 
@@ -137,17 +130,58 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
     /** @var int|null Cached context id of the current attempt usage. */
     protected $attemptcontextid = null;
 
-    /**
-     * Required by the interface question_automatically_gradable_with_countback.
-     *
-     * @param array $responses
-     * @param array $totaltries
-     * @return number
-     */
-    public function compute_final_grade($responses, $totaltries) {
+    /** @var string|null Cached AI comment from the last grade_response() call. */
+    public $lastaicomment = null;
 
-        return true;
+    /** @var string|null Cached AI prompt from the last grade_response() call. */
+    public $lastaiprompt = null;
+
+    /** @var string|null Cached spellcheck response from the last grade_response() call. */
+    public $lastspellcheckresponse = null;
+
+    /**
+     * Choose the question behaviour to use for this question attempt.
+     *
+     * Routes the requested preferred behaviour to an adapted variant that
+     * persists AI grading results (comment, prompt, spellcheck) as cached
+     * behaviour variables on the grading step.
+     *
+     * Immediate-style behaviours (immediatefeedback, immediatecbm, adaptive,
+     * adaptivenopenalty, interactive, interactivecountback) are routed to
+     * qbehaviour_immediate_for_aitext, which grades on every submit.
+     *
+     * Manualgraded is kept as-is via the core archetypal behaviour: no AI
+     * grading occurs in that mode, so no adapter is needed. Note that
+     * manualgraded is disabled by default in the quiz preferred-behaviour
+     * dropdown but may be re-enabled by an admin.
+     *
+     * All remaining behaviours, including deferredfeedback and deferredcbm,
+     * are routed to qbehaviour_deferred_for_aitext, which grades only on finish.
+     *
+     * @param question_attempt $qa the question attempt being constructed.
+     * @param string $preferredbehaviour the preferred behaviour name from the quiz settings.
+     * @return question_behaviour the behaviour instance to use.
+     */
+    public function make_behaviour(question_attempt $qa, $preferredbehaviour) {
+        if (
+            in_array(
+                $preferredbehaviour,
+                ['immediatefeedback', 'immediatecbm', 'adaptive', 'adaptivenopenalty', 'interactive', 'interactivecountback'],
+                true
+            )
+        ) {
+            return question_engine::make_behaviour('immediate_for_aitext', $qa, $preferredbehaviour);
+        }
+
+        // Manual grading: no AI grading occurs, use core behaviour as-is.
+        if ($preferredbehaviour === 'manualgraded') {
+            return question_engine::make_archetypal_behaviour($preferredbehaviour, $qa);
+        }
+
+        // Everything else (deferredfeedback, deferredcbm, anything unknown) → deferred adapter.
+        return question_engine::make_behaviour('deferred_for_aitext', $qa, $preferredbehaviour);
     }
+
     /**
      * Re-initialise the state during a quiz (or question use)
      *
@@ -155,9 +189,50 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
      * @return void
      */
     public function apply_attempt_state(question_attempt_step $step) {
-        $this->step = $step;
+        $this->lastaicomment = null;
+        $this->lastaiprompt = null;
+        $this->lastspellcheckresponse = null;
         $this->attemptcontextid = null;
+        // Resolve the usage context from the step.
+        $this->resolve_attempt_context($step);
     }
+
+    /**
+     * Resolve the attempt (usage) context from a step and cache it.
+     *
+     * Walks step → question_attempt → question_usage → context via DB.
+     * Ignores user contexts because AI permission checks cannot be
+     * evaluated for them (typically means question preview).
+     *
+     * @param question_attempt_step $step A step belonging to this attempt.
+     */
+    private function resolve_attempt_context(question_attempt_step $step): void {
+        global $DB;
+
+        $stepid = 0;
+        if (method_exists($step, 'get_id')) {
+            $stepid = (int) $step->get_id();
+        }
+
+        if ($stepid <= 0) {
+            return;
+        }
+
+        $sql = "SELECT qu.contextid
+              FROM {question_attempt_steps} qas
+              JOIN {question_attempts} qa ON qa.id = qas.questionattemptid
+              JOIN {question_usages} qu ON qu.id = qa.questionusageid
+              JOIN {context} c ON c.id = qu.contextid
+             WHERE qas.id = :stepid AND c.contextlevel <> :contextlevel";
+        $contextid = $DB->get_field_sql($sql, [
+            'stepid' => $stepid,
+            'contextlevel' => CONTEXT_USER,
+        ]);
+        if (!empty($contextid)) {
+            $this->attemptcontextid = (int) $contextid;
+        }
+    }
+
     /**
      * Call the llm using either the 4.5 core api or the backend provided by
      * local_ai_manager (mebis) or tool_aimanager
@@ -242,43 +317,53 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
      * @return void
      */
     public function grade_response(array $response): array {
+        // Clear from any previous call.
+        $this->lastaicomment = null;
+        $this->lastaiprompt = null;
+        $this->lastspellcheckresponse = null;
 
-        if ($this->spellcheck) {
-            $spellcheckresponse = $this->get_spellchecking($response);
-            $this->insert_attempt_step_data('-spellcheckresponse', $spellcheckresponse);
-        }
         if (!$this->is_complete_response($response)) {
-            $grade = [0 => 0, question_state::$needsgrading];
-            return $grade;
+            return [0, question_state::$needsgrading];
         }
+
+        // If spellcheck is enabled, perform spellchecking and cache the response. Spellcheck failure is non-fatal.
+        if ($this->spellcheck) {
+            try {
+                $this->lastspellcheckresponse = $this->get_spellchecking($response);
+            } catch (\moodle_exception $e) {
+                // Spellcheck failure is non-fatal — keep going without it.
+                $this->lastspellcheckresponse = null;
+            }
+        }
+
         $fullaiprompt = $this->build_full_ai_prompt(
             $response['answer'],
             $this->aiprompt,
             $this->defaultmark,
             $this->markscheme
         );
-        $feedback = $this->perform_request($fullaiprompt, 'feedback');
+
+        $this->lastaiprompt = $fullaiprompt;
+        try {
+            $feedback = $this->perform_request($fullaiprompt, 'feedback');
+        } catch (\moodle_exception $e) {
+            // AI unavailable (quota, capability, tenant, etc.) — defer to manual grading.
+            debugging('AI grading unavailable, deferring to manual grading: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            $this->lastaicomment = get_string('err_nofeedback', 'qtype_aitext');
+            return [0.0, question_state::$needsgrading];
+        }
         $contentobject = $this->process_feedback($feedback);
+        $this->lastaicomment = $contentobject->feedback;
 
         // If there are no marks, write the feedback and set to needs grading .
         if (is_null($contentobject->marks)) {
-            $grade = [0.0, question_state::$needsgrading];
-        } else {
-            $fraction = 0.0;
-            if (is_numeric($contentobject->marks) && $this->defaultmark > 0) {
-                $fraction = (float) $contentobject->marks / $this->defaultmark;
-            }
-            $grade = [$fraction, question_state::graded_state_for_fraction($fraction)];
+            return [0.0, question_state::$needsgrading];
         }
-
-         // The -aicontent data is used in question preview. Only needs to happen in preview.
-        $this->insert_attempt_step_data('-aiprompt', $fullaiprompt);
-        $this->insert_attempt_step_data('-aicontent', $contentobject->feedback);
-
-        $this->insert_attempt_step_data('-comment', $contentobject->feedback);
-        $this->insert_attempt_step_data('-commentformat', FORMAT_HTML);
-
-        return $grade;
+        $fraction = 0.0;
+        if (is_numeric($contentobject->marks) && $this->defaultmark > 0) {
+            $fraction = (float) $contentobject->marks / $this->defaultmark;
+        }
+        return [$fraction, question_state::graded_state_for_fraction($fraction)];
     }
 
     /**
@@ -541,23 +626,6 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
             $cache->set(current_language() . '_' . $text, $translation);
         }
         return $translation;
-    }
-
-    /**
-     * Fake manual grading
-     *
-     * @param string $name
-     * @param string $value
-     * @return void
-     */
-    protected function insert_attempt_step_data(string $name, string $value): void {
-        global $DB;
-        $data = [
-            'attemptstepid' => $this->step->get_id(),
-            'name' => $name,
-            'value' => $value,
-        ];
-        $DB->insert_record('question_attempt_step_data', $data);
     }
 
     /**
@@ -854,28 +922,8 @@ class qtype_aitext_question extends question_graded_automatically_with_countback
             return $this->attemptcontextid;
         }
 
-        $stepid = 0;
-        if (!empty($this->step) && method_exists($this->step, 'get_id')) {
-            $stepid = (int) $this->step->get_id();
-        }
-
-        if ($stepid > 0) {
-            // We are ignoring user contexts here, because the permissions for AI requests cannot be evaluated for user contexts.
-            // User contexts typically mean that a question preview is being done. In this case we use the question's context, so
-            // basically the context of the question bank it belongs to.
-            $sql = "SELECT qu.contextid
-                      FROM {question_attempt_steps} qas
-                      JOIN {question_attempts} qa ON qa.id = qas.questionattemptid
-                      JOIN {question_usages} qu ON qu.id = qa.questionusageid
-                      JOIN {context} c ON c.id = qu.contextid
-                     WHERE qas.id = :stepid AND c.contextlevel <> :contextlevel";
-            $attemptcontextid = $DB->get_field_sql($sql, ['stepid' => $stepid, 'contextlevel' => CONTEXT_USER]);
-            if (!empty($attemptcontextid)) {
-                $this->attemptcontextid = (int) $attemptcontextid;
-                return $this->attemptcontextid;
-            }
-        }
-
+        // The question bank context ($this->contextid) is always available as a fallback.
+        // It is set by the question engine when loading the question definition.
         if (!empty($this->contextid)) {
             $this->attemptcontextid = $this->contextid;
             return $this->attemptcontextid;

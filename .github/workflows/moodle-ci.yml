@@ -42,6 +42,20 @@ jobs:
         with:
           path: plugin
 
+      - name: Checkout qbehaviour_immediate_for_aitext
+        uses: actions/checkout@v3
+        with:
+          repository: marcusgreen/moodle-qbehaviour_immediate_for_aitext
+          ref: main
+          path: extra-plugins/immediate_for_aitext
+
+      - name: Checkout qbehaviour_deferred_for_aitext
+        uses: actions/checkout@v3
+        with:
+          repository: marcusgreen/moodle-qbehaviour_deferred_for_aitext
+          ref: main
+          path: extra-plugins/deferred_for_aitext
+
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
@@ -62,7 +76,7 @@ jobs:
 
       - name: Install Moodle
         # Need explicit IP to stop mysql client fail on attempt to use unix socket.
-        run: moodle-plugin-ci install --plugin ./plugin --db-host=127.0.0.1
+        run: moodle-plugin-ci install --plugin ./plugin --extra-plugins ./extra-plugins --db-host=127.0.0.1
         env:
           DB: ${{ matrix.database }}
           MOODLE_BRANCH: ${{ matrix.moodle-branch }}

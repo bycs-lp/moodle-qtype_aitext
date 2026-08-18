@@ -55,6 +55,25 @@ class qtype_aitext_format_plain_renderer extends qtype_aitext_format_renderer_ba
     }
 
     /**
+     * Render the response area as read-only.
+     *
+     * @param string $name the variable name this input edits.
+     * @param question_attempt $qa the question attempt being displayed.
+     * @param question_attempt_step $step the current step.
+     * @param int $lines the number of lines for the input area.
+     * @param object $context the context the attempt belongs to.
+     * @return string HTML fragment.
+     */
+    public function response_area_read_only($name, $qa, $step, $lines, $context) {
+        $id = $qa->get_qt_field_name($name) . '_id';
+
+        $responselabel = $this->displayoptions->add_question_identifier_to_label(get_string('answertext', 'qtype_essay'));
+        $output = html_writer::tag('label', $responselabel, ['class' => 'visually-hidden', 'for' => $id]);
+        $output .= $this->textarea($step->get_qt_var($name), $lines, ['id' => $id, 'readonly' => 'readonly']);
+        return $output;
+    }
+
+    /**
      * Text area for response to be keyed in
      *
      * @param string $name
@@ -70,7 +89,7 @@ class qtype_aitext_format_plain_renderer extends qtype_aitext_format_renderer_ba
         $id = $inputname . '_id';
 
         $responselabel = $this->displayoptions->add_question_identifier_to_label(get_string('answertext', 'qtype_aitext'));
-        $output = html_writer::tag('label', $responselabel, ['class' => 'sr-only', 'for' => $id]);
+        $output = html_writer::tag('label', $responselabel, ['class' => 'visually-hidden', 'for' => $id]);
         $output .= $this->textarea($step->get_qt_var($name), $lines, ['name' => $inputname, 'id' => $id]);
         $output .= html_writer::empty_tag('input', ['type' => 'hidden', 'name' => $inputname . 'format', 'value' => FORMAT_PLAIN]);
         return $output;

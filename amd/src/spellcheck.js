@@ -53,6 +53,9 @@ export const init = (readonlyareaselector, spellcheckeditbuttonselector) => {
 export const renderDiff = (readonlyareaselector) => {
     const studentanswer = document.querySelector(readonlyareaselector).innerHTML;
     const spellcheck = document.querySelector(readonlyareaselector).dataset.spellcheck;
+    if (!spellcheck) {
+        return;
+    }
     let span = null;
 
     const diff = Diff.diffChars(studentanswer, spellcheck);
@@ -88,14 +91,12 @@ export const renderDiff = (readonlyareaselector) => {
  * @param {string} readonlyareaselector the selector for the readonly area
  */
 export const showModalForm = async(readonlyareaselector) => {
-    const attemptstepid = document.querySelector(readonlyareaselector).dataset.spellcheckattemptstepid;
-    const answerstepid = document.querySelector(readonlyareaselector).dataset.spellcheckattemptstepanswerid;
+    const questionattemptid = document.querySelector(readonlyareaselector).dataset.questionattemptid;
     const title = await getString('spellcheckedit', 'qtype_aitext');
     const modalForm = new ModalForm({
         formClass: "qtype_aitext\\form\\edit_spellcheck",
         args: {
-            attemptstepid,
-            answerstepid
+            questionattemptid,
         },
         modalConfig: {title},
     });
