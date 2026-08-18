@@ -156,7 +156,7 @@ final class upgradelib_test extends \advanced_testcase {
 
         // Legacy broken attempt: aitext + interactivecountback -> should be migrated.
         $tomigrate = $this->create_attempt($aitextquestion, 'interactivecountback');
-        // aitext with a compatible behaviour -> must be left untouched.
+        // Aitext with a compatible behaviour -> must be left untouched.
         $aitextimmediate = $this->create_attempt($aitextquestion, 'immediatefeedback');
         // Non-aitext question with interactivecountback -> must be left untouched.
         $other = $this->create_attempt($shortanswerquestion, 'interactivecountback');
@@ -164,12 +164,18 @@ final class upgradelib_test extends \advanced_testcase {
         // Only the single aitext interactivecountback attempt is migrated.
         $this->assertEquals(1, qtype_aitext_upgrade_migrate_countback_attempts());
 
-        $this->assertEquals('immediate_for_aitext',
-            $DB->get_field('question_attempts', 'behaviour', ['id' => $tomigrate]));
-        $this->assertEquals('immediatefeedback',
-            $DB->get_field('question_attempts', 'behaviour', ['id' => $aitextimmediate]));
-        $this->assertEquals('interactivecountback',
-            $DB->get_field('question_attempts', 'behaviour', ['id' => $other]));
+        $this->assertEquals(
+            'immediate_for_aitext',
+            $DB->get_field('question_attempts', 'behaviour', ['id' => $tomigrate])
+        );
+        $this->assertEquals(
+            'immediatefeedback',
+            $DB->get_field('question_attempts', 'behaviour', ['id' => $aitextimmediate])
+        );
+        $this->assertEquals(
+            'interactivecountback',
+            $DB->get_field('question_attempts', 'behaviour', ['id' => $other])
+        );
 
         // Second migration should be idempotent (0 records).
         $this->assertEquals(0, qtype_aitext_upgrade_migrate_countback_attempts());
@@ -187,14 +193,20 @@ final class upgradelib_test extends \advanced_testcase {
         global $DB;
 
         $quba = \question_engine::make_questions_usage_by_activity(
-            'core_question_preview', \context_system::instance());
+            'core_question_preview',
+            \context_system::instance()
+        );
         $quba->set_preferred_behaviour('deferredfeedback');
         $slot = $quba->add_question($question);
         $quba->start_all_questions();
         \question_engine::save_questions_usage_by_activity($quba);
 
-        $attemptid = $DB->get_field('question_attempts', 'id',
-            ['questionusageid' => $quba->get_id(), 'slot' => $slot], MUST_EXIST);
+        $attemptid = $DB->get_field(
+            'question_attempts',
+            'id',
+            ['questionusageid' => $quba->get_id(), 'slot' => $slot],
+            MUST_EXIST
+        );
         $DB->set_field('question_attempts', 'behaviour', $behaviour, ['id' => $attemptid]);
 
         return $attemptid;
