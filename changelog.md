@@ -1,9 +1,26 @@
 ### Moodle AIText question type
 
-## Unreleased code
+## Release 2.1.0 Aug 2026
+
+This is a significant release. Grading now runs through dedicated companion question behaviours (`qbehaviour_immediate_for_aitext` and `qbehaviour_deferred_for_aitext`) instead of overriding core behaviours. This makes AIText grading more predictable and keeps it isolated from other question types. Existing quiz attempts that used the legacy `interactivecountback` behaviour are automatically migrated on upgrade; other question types' attempts are left untouched.
+
+AI-generated feedback can now be shown to, and used as a reference by, a human grader when marking a response manually.
+
+The spellchecking feature has been reworked and moved into its own separate area of the form. Spellchecking no longer fails to initialise when the response string is empty.
+
+Grading no longer fails outright when the configured AI tools are unavailable — the attempt degrades gracefully instead of erroring.
+
+Fixed sample responses accumulating duplicates each time a question was saved.
+
+Fixed an incorrect bitmask check in `responserun.js` that affected eval-div matching.
+
+Added test fixtures (small English, Maths, Biology and ICT quizzes).
+
+Thanks to Paola Maneggia and the ByCS team for the behaviour rework improvements, extensive testing and positive feedback.
 
 Thanks to Richard Aljaste for a fix to an issue with translating the disclaimer language https://github.com/marcusgreen/moodle-qtype_aitext/pull/73
 
+Thanks to Marina Glancy for MDLShield which scans moodle plugins for security issues.
 
 ## Release 2.03 Jul 2026
 
