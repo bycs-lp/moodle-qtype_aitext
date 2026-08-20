@@ -16,8 +16,6 @@
 
 namespace qtype_aitext;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Unit tests for {@see \qtype_aitext\json_object_extractor}.
  *
@@ -28,7 +26,6 @@ defined('MOODLE_INTERNAL') || die();
  * @covers     \qtype_aitext\json_object_extractor
  */
 final class json_object_extractor_test extends \basic_testcase {
-
     /**
      * The locator returns the first balanced top-level object, ignoring surrounding text.
      *
@@ -61,6 +58,7 @@ final class json_object_extractor_test extends \basic_testcase {
                 'expected' => '{"feedback":"good","marks":"5"}',
             ],
             'markdown fenced' => [
+                // @codingStandardsIgnoreLine moodle.Strings.ForbiddenStrings.Found
                 'text' => "```json\n{\"feedback\":\"good\",\"marks\":\"5\"}\n```",
                 'expected' => '{"feedback":"good","marks":"5"}',
             ],

@@ -41,7 +41,6 @@ namespace qtype_aitext;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class json_object_extractor {
-
     /**
      * Maximum JSON nesting depth the scanner will descend into.
      *
@@ -347,8 +346,10 @@ class json_object_extractor {
         $scalarstart = $this->pos;
         while ($this->pos < $this->len) {
             $char = $this->text[$this->pos];
-            if ($char === ',' || $char === '}' || $char === ']'
-                    || $char === ' ' || $char === "\t" || $char === "\n" || $char === "\r") {
+            if (
+                $char === ',' || $char === '}' || $char === ']'
+                || $char === ' ' || $char === "\t" || $char === "\n" || $char === "\r"
+            ) {
                 break;
             }
             $this->pos++;

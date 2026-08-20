@@ -31,7 +31,6 @@ namespace qtype_aitext;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class comment_formatter {
-
     /**
      * Render a stored AI comment to display HTML.
      *

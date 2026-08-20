@@ -131,7 +131,7 @@ class qtype_aitext_external extends external_api {
             );
             $feedback = $aiquestion->perform_request($fullaiprompt);
             $contentobject = $aiquestion->process_feedback($feedback);
-            // process_feedback() now returns the raw feedback. This is an ephemeral
+            // The process_feedback() call now returns the raw feedback. This is an ephemeral
             // preview for the question-editing "test sample response" tool and never stored, and the
             // JS injects it via innerHTML, so format it for display here using the same helper the
             // display renderers use.

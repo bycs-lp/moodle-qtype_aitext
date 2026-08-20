@@ -16,8 +16,6 @@
 
 namespace qtype_aitext;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Unit tests for {@see \qtype_aitext\comment_formatter}.
  *
@@ -28,7 +26,6 @@ defined('MOODLE_INTERNAL') || die();
  * @covers     \qtype_aitext\comment_formatter
  */
 final class comment_formatter_test extends \advanced_testcase {
-
     /**
      * Empty and whitespace-only comments render to the empty string regardless of format.
      *

@@ -54,6 +54,7 @@ if ($ADMIN->fulltree) {
         'qtype_aitext/jsonprompt',
         new lang_string('jsonprompt', 'qtype_aitext'),
         new lang_string('jsonprompt_setting', 'qtype_aitext'),
+        // phpcs:disable moodle.Files.LineLength.TooLong, moodle.Files.LineLength.MaxExceeded, moodle.Strings.ForbiddenStrings.Found
         'Return only a JSON object which enumerates a set of 2 elements. The JSON object should be in
 	this format: {"feedback":"string","marks":"number"} where marks is a single number summing all marks.
 	Formatting rules for the "feedback" string:
@@ -64,6 +65,7 @@ if ($ADMIN->fulltree) {
     5. Escape correctly any backslashes in the JSON string values.
     6. Use particular care in Latex expressions that will need to have one level more of escaping for the backslashes (e.g., \\frac{1}{2} should be written as \\\\frac{1}{2} in the JSON string) to survive conversion from markdown.
     7. If a mark is required, include the achieved marks as fraction of the total achieved/total explicitly as part of the written feedback text.',
+        // phpcs:enable moodle.Files.LineLength.TooLong, moodle.Files.LineLength.MaxExceeded, moodle.Strings.ForbiddenStrings.Found
         PARAM_RAW,
         80,
         6
