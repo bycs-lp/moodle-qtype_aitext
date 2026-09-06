@@ -49,6 +49,20 @@ class json_object_extractor {
      */
     public const MAX_JSON_DEPTH = 512;
 
+    /**
+     * JSON insignificant whitespace characters, keyed for O(1) isset() lookup.
+     *
+     * @var array<string, bool>
+     */
+    private const WHITESPACE = [' ' => true, "\t" => true, "\n" => true, "\r" => true];
+
+    /**
+     * Structural characters that terminate an unquoted scalar, keyed for O(1) isset() lookup.
+     *
+     * @var array<string, bool>
+     */
+    private const END_SCALAR = [',' => true, '}' => true, ']' => true];
+
     /** @var string The text currently being scanned. */
     private string $text = '';
 
@@ -346,10 +360,7 @@ class json_object_extractor {
         $scalarstart = $this->pos;
         while ($this->pos < $this->len) {
             $char = $this->text[$this->pos];
-            if (
-                $char === ',' || $char === '}' || $char === ']'
-                || $char === ' ' || $char === "\t" || $char === "\n" || $char === "\r"
-            ) {
+            if (isset(self::END_SCALAR[$char]) || isset(self::WHITESPACE[$char])) {
                 break;
             }
             $this->pos++;
@@ -363,7 +374,7 @@ class json_object_extractor {
     private function skip_whitespace(): void {
         while ($this->pos < $this->len) {
             $char = $this->text[$this->pos];
-            if ($char !== ' ' && $char !== "\t" && $char !== "\n" && $char !== "\r") {
+            if (!isset(self::WHITESPACE[$char])) {
                 break;
             }
             $this->pos++;
