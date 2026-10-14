@@ -27,6 +27,9 @@ defined('MOODLE_INTERNAL') || die();
 global $CFG;
 require_once($CFG->dirroot . '/question/engine/tests/helpers.php');
 
+global $CFG;
+require_once($CFG->dirroot . '/question/engine/tests/helpers.php');
+
 /**
  * Test helper class for the aitext question type.
  *
